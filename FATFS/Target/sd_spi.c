@@ -314,7 +314,7 @@ BYTE send_cmd (		/* Return value: R1 resp (bit7==1:Failed to send) */
 /* Initialize disk drive                                                 */
 /*-----------------------------------------------------------------------*/
 
-inline DSTATUS USER_SPI_initialize (
+DSTATUS USER_SPI_initialize (
 	BYTE drv		/* Physical drive number (0) */
 )
 {
@@ -370,7 +370,7 @@ inline DSTATUS USER_SPI_initialize (
 /* Get disk status                                                       */
 /*-----------------------------------------------------------------------*/
 
-inline DSTATUS USER_SPI_status (
+DSTATUS USER_SPI_status (
 	BYTE drv		/* Physical drive number (0) */
 )
 {
@@ -385,7 +385,7 @@ inline DSTATUS USER_SPI_status (
 /* Read sector(s)                                                        */
 /*-----------------------------------------------------------------------*/
 
-inline DRESULT USER_SPI_read (
+DRESULT USER_SPI_read (
 	BYTE drv,		/* Physical drive number (0) */
 	BYTE *buff,		/* Pointer to the data buffer to store read data */
 	DWORD sector,	/* Start sector number (LBA) */
@@ -424,7 +424,7 @@ inline DRESULT USER_SPI_read (
 /*-----------------------------------------------------------------------*/
 
 #if _USE_WRITE
-inline DRESULT USER_SPI_write (
+DRESULT USER_SPI_write (
 	BYTE drv,			/* Physical drive number (0) */
 	const BYTE *buff,	/* Ponter to the data to write */
 	DWORD sector,		/* Start sector number (LBA) */
@@ -465,7 +465,7 @@ inline DRESULT USER_SPI_write (
 /*-----------------------------------------------------------------------*/
 
 #if _USE_IOCTL
-inline DRESULT USER_SPI_ioctl (
+DRESULT USER_SPI_ioctl (
 	BYTE drv,		/* Physical drive number (0) */
 	BYTE cmd,		/* Control command code */
 	void *buff		/* Pointer to the conrtol data */
