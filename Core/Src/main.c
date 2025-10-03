@@ -154,12 +154,16 @@ int main(void)
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  shell_printf("\r\nSystem initializing...\r\n");
+
   /* Start the free-running 1 MHz timer */
   LL_TIM_EnableCounter(TIM2);
 
   /* Start the 20 Hz timer and interrupt */
+  /*
   LL_TIM_EnableIT_UPDATE(TIM4);
   LL_TIM_EnableCounter(TIM4);
+  */
 
   shell_printf("\r\n===============================================\r\n");
   shell_printf("       SYSTEM INIT\r\n");
