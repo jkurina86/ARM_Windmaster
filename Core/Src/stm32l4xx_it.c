@@ -101,7 +101,7 @@ extern volatile uint8_t uart3_print_flag;
 //extern volatile uint8_t uart5_print_flag;
 
 /* External (main.c) 20 Hz timer notification flag */
-extern volatile uint8_t tick20_flag;
+//extern volatile uint8_t tick20_flag;
 
 /* External DMA buffer variables from dummy_WM.c */
 extern uint8_t dma_buffer[32768];
@@ -280,12 +280,12 @@ void TIM4_IRQHandler(void)
   /* 20 Hz Timer */
   /* USER CODE END TIM4_IRQn 0 */
   /* USER CODE BEGIN TIM4_IRQn 1 */
-  
+  /*
   if (LL_TIM_IsActiveFlag_UPDATE(TIM4)) {
       LL_TIM_ClearFlag_UPDATE(TIM4);
       tick20_flag = 1;  // Set the 20 Hz tick flag
   }
-
+  */
   /* USER CODE END TIM4_IRQn 0 */
   /* USER CODE BEGIN TIM4_IRQn 1 */
 

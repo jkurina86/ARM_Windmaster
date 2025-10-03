@@ -16,7 +16,7 @@
 
 /* Private defines -----------------------------------------------------------*/
 #define DMA_BUFFER_SIZE 16384 /* 16 KB for WM sensor data */
-#define PACKET_SIZE 23
+//#define PACKET_SIZE 23
 #define TEST_PACKET_SIZE 10 /* 10 bytes for test packet: 2 header bytes + 4 ASCII identifier bytes + 4 packet number bytes */
 #define PACKET_SIZE_WITH_TIMESTAMP (PACKET_SIZE + 8) /* 23 bytes data + 8 bytes timestamp */
 #define HEADER_SIZE 2
@@ -25,14 +25,15 @@
 
 /* Private variables ---------------------------------------------------------*/
 static bool wm_running = false;
-static WM_Data_t latest_data = {0};
+//static WM_Data_t latest_data = {0};
+static WM_Test_t latest_test = {0};
 uint8_t dma_buffer_wm[DMA_BUFFER_SIZE] __attribute__((section(".dma_buffer_wm")));
 uint16_t dma_old_pos_wm = 0;
 static char log_buffer[256];
 
 /* Private function prototypes -----------------------------------------------*/
 static void send_command(const char* cmd);
-static bool parse_packet(uint8_t* buffer, uint16_t length, WM_Data_t* data);
+//static bool parse_packet(uint8_t* buffer, uint16_t length, WM_Data_t* data);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -66,7 +67,8 @@ void dummy_WM_init(void) {
     LL_USART_Enable(UART4);
 
     /* Initialize latest data */
-    memset(&latest_data, 0, sizeof(WM_Data_t));
+    //memset(&latest_data, 0, sizeof(WM_Data_t));
+    memset(&latest_test, 0, sizeof(WM_Test_t));
 }
 
 /** @brief  Start the dummy WindMaster
@@ -109,21 +111,22 @@ bool dummy_WM_is_running(void) {
   * @retval None
   * @note   Parses the DMA buffer for new packets and updates the provided data structure.
   */
+/*
 void dummy_WM_get_data(WM_Data_t* data) {
     if (data) {
-        /* Get current DMA position */
+        // Get current DMA position
         uint16_t dma_pos = DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_5);
 
-        /* Check for new data */
+        // Check for new data
         uint16_t bytes_available = (dma_pos >= dma_old_pos_wm) ? (dma_pos - dma_old_pos_wm) : (DMA_BUFFER_SIZE - dma_old_pos_wm + dma_pos);
 
         if (bytes_available >= PACKET_SIZE) {
-            /* Look for packet header in the buffer */
+            // Look for packet header in the buffer
             for (uint16_t i = 0; i <= bytes_available - PACKET_SIZE; i++) {
                 uint16_t check_pos = (dma_old_pos_wm + i) % DMA_BUFFER_SIZE;
                 if (dma_buffer_wm[check_pos] == 0xB4 &&
                     dma_buffer_wm[(check_pos + 1) % DMA_BUFFER_SIZE] == 0xB4) {
-                    /* Found header, try to parse the packet */
+                    // Found header, try to parse the packet
                     if (parse_packet(&dma_buffer_wm[check_pos], PACKET_SIZE, &latest_data)) {
                         dma_old_pos_wm = (check_pos + PACKET_SIZE) % DMA_BUFFER_SIZE;
                         break;
@@ -135,6 +138,7 @@ void dummy_WM_get_data(WM_Data_t* data) {
         memcpy(data, &latest_data, sizeof(WM_Data_t));
     }
 }
+*/
 
 /** @brief  Get the latest WindMaster test data
   * @param  test: Pointer to WM_Test_t structure to fill with latest test data
@@ -171,6 +175,7 @@ void dummy_WM_get_test_data(WM_Test_t* test) {
   * @retval const char*: Pointer to a static buffer containing the formatted log string
   * @note   Formats the WindMaster data into a human-readable string for logging purposes.
   */
+/*
 const char* dummy_WM_log(WM_Data_t* data) {
     if (data) {
         snprintf(log_buffer, sizeof(log_buffer),
@@ -182,6 +187,7 @@ const char* dummy_WM_log(WM_Data_t* data) {
     }
     return log_buffer;
 }
+*/
 
 /* Private functions ---------------------------------------------------------*/
 
@@ -204,21 +210,22 @@ static void send_command(const char* cmd) {
   * @retval true if a valid packet was parsed, false otherwise
   * @note   Validates and extracts data from a WindMaster packet.
   */
+/*
 bool parse_packet(uint8_t* buffer_start, uint16_t length, WM_Data_t* data) {
     if (length < PACKET_SIZE) return false;
 
-    /* Copy packet data handling circular buffer wrap-around */
+    // Copy packet data handling circular buffer wrap-around
     uint8_t packet[PACKET_SIZE];
     for (int i = 0; i < PACKET_SIZE; i++) {
         packet[i] = dma_buffer_wm[(buffer_start - dma_buffer_wm + i) % DMA_BUFFER_SIZE];
     }
 
-    /* Check header */
+    // Check header
     if (packet[0] != 0xB4 || packet[1] != 0xB4) {
         return false;
     }
 
-    /* Extract data (little-endian) */
+    // Extract data (little-endian)
     data->status = (int16_t)(packet[2] | (packet[3] << 8));
     data->U_axis_speed = (int16_t)(packet[4] | (packet[5] << 8));
     data->V_axis_speed = (int16_t)(packet[6] | (packet[7] << 8));
@@ -230,7 +237,7 @@ bool parse_packet(uint8_t* buffer_start, uint16_t length, WM_Data_t* data) {
     data->A4 = (int16_t)(packet[18] | (packet[19] << 8));
     data->Temp = (int16_t)(packet[20] | (packet[21] << 8));
 
-    /* Verify checksum */
+    // Verify checksum
     uint8_t checksum = 0;
     for (int i = 0; i < PACKET_SIZE - 1; i++) {
         checksum ^= packet[i];
@@ -241,6 +248,7 @@ bool parse_packet(uint8_t* buffer_start, uint16_t length, WM_Data_t* data) {
 
     return true;
 }
+*/
 
 /** @brief  Parse a WindMaster test packet from the DMA buffer
   * @param  buffer: Pointer to the start of the packet in the DMA buffer
