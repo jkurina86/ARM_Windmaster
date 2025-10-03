@@ -81,3 +81,7 @@ core.*
 
 # ST-LINK
 STLinkLog.txt
+
+# Misc.
+.specify/
+.github/
