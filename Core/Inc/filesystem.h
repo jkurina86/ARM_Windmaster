@@ -1,8 +1,8 @@
 /**
   ******************************************************************************
   * @file    filesystem.h
-  * @brief   Driver for FatFS file system operations
-  * @note    See the FatFS documentation for details.
+  * @brief   Driver for FatFS file system operations in the shell environment.
+  * @note    IMPORTANT: THIS MODULE IS ONLY INTENDED TO BE USED WITH THE SHELL COMMANDS.
   ******************************************************************************
   */
 #ifndef INC_FILESYSTEM_H_

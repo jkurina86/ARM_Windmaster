@@ -87,7 +87,7 @@ volatile uint8_t uart5_print_flag = 0;
 static volatile uint8_t rtc_timer_flag = 0;
 
 /* 20 Hz timer notification flag */
-volatile uint8_t tick20_flag = 0;
+//volatile uint8_t tick20_flag = 0;
 
 /* DMA buffer extern */
 extern uint8_t dma_buffer_wm[DMA_BUFFER_SIZE];

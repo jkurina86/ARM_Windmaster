@@ -1,8 +1,8 @@
 /**
   ******************************************************************************
   * @file    filesystem.c
-  * @brief   Driver for FatFS file system operations
-  * @note    See the FatFS documentation for details.
+  * @brief   Driver for FatFS file system operations in the shell environment.
+  * @note    IMPORTANT: THIS MODULE IS ONLY INTENDED TO BE USED WITH THE SHELL COMMANDS.
   ******************************************************************************
   */
 
@@ -246,9 +246,9 @@ FS_Result_t filesystem_cat(const char *filename, void (*print_callback)(const ch
 }
 
 /**
-  * @brief Write data to a file
+  * @brief Write text data to a file
   * @param filename: Name of file to write
-  * @param data: Data to write to file
+  * @param data: Text data to write to file
   * @retval FS_Result_t: Operation result
   */
 FS_Result_t filesystem_write(const char *filename, const char *data)
@@ -272,6 +272,36 @@ FS_Result_t filesystem_write(const char *filename, const char *data)
         }
     }
     
+    return convert_fatfs_result(fs_result);
+}
+
+/**
+ * @brief Append text data to a file
+ * @param filename: Name of file to append to
+ * @param data: Text data to append to file
+ * @retval FS_Result_t: Operation result
+ */
+FS_Result_t filesystem_append(const char *filename, const char *data)
+{
+    if (!fs_mounted) {
+        return FS_NOT_MOUNTED;
+    }
+
+    if (!filename || strlen(filename) == 0 || !data) {
+        return FS_INVALID_PARAM;
+    }
+
+    fs_result = f_open(&fil, filename, FA_WRITE | FA_OPEN_APPEND);
+    if (fs_result == FR_OK) {
+        UINT bytes_written;
+        fs_result = f_write(&fil, data, strlen(data), &bytes_written);
+        f_close(&fil);
+
+        if (fs_result == FR_OK) {
+            return FS_OK;
+        }
+    }
+
     return convert_fatfs_result(fs_result);
 }
 
