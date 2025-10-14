@@ -27,6 +27,7 @@
 #include "sd_spi.h"
 #include "stm32l4xx_hal.h" /* Provide the low-level HAL functions */
 #include "main.h" /* Include the main header for GPIO and other configurations */
+#include <stdbool.h>
 
 extern SPI_HandleTypeDef SD_SPI_HANDLE;
 
@@ -84,6 +85,35 @@ BYTE CardType;			/* Card type flags */
 uint32_t spiTimerTickStart;
 uint32_t spiTimerTickDelay;
 
+/* BEGIN SPI DMA CODE */
+
+/* ---- SPI DMA completion flags ---- */
+static volatile bool spi_tx_done = false;
+static volatile bool spi_rx_done = false;
+
+/* HAL DMA completion callbacks for this SPI */
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi) {
+    if (hspi == &SD_SPI_HANDLE) spi_tx_done = true;
+}
+void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi) {
+    if (hspi == &SD_SPI_HANDLE) spi_rx_done = true;
+}
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
+    if (hspi == &SD_SPI_HANDLE) { spi_tx_done = true; spi_rx_done = true; }
+}
+
+/* Spin-wait helper with timeout (replace with RTOS semaphore if you use one) */
+static bool wait_flag(volatile bool *flag, uint32_t timeout_ms){
+    uint32_t t0 = HAL_GetTick();
+    while (!*flag) {
+        if ((HAL_GetTick() - t0) > timeout_ms) return false;
+    }
+    *flag = false;   // consume flag
+    return true;
+}
+
+/* END SPI DMA CODE */
+
 void SPI_Timer_On(uint32_t waitTicks) {
     spiTimerTickStart = HAL_GetTick();
     spiTimerTickDelay = waitTicks;
@@ -116,9 +146,24 @@ void rcvr_spi_multi (
 	UINT btr		/* Number of bytes to receive (even number) */
 )
 {
+	/*
 	for(UINT i=0; i<btr; i++) {
 		*(buff+i) = xchg_spi(0xFF);
 	}
+	*/
+	/* BEGIN SPI DMA CODE */
+	/* btr is a multiple of 512 in our use; run one DMA and wait */
+    spi_rx_done = false;
+    if (HAL_SPI_Receive_DMA(&SD_SPI_HANDLE, buff, btr) != HAL_OK) {
+        /* Fallback: blocking receive (shouldn’t trigger in steady state) */
+        //HAL_SPI_Receive(&SD_SPI_HANDLE, buff, btr, HAL_MAX_DELAY);
+        return;
+    }
+    /* Wait up to 1s for pathological cards; tune to your liking */
+    if (!wait_flag(&spi_rx_done, 1000)) {
+        /* Optional: add error handling; fall back to blocking */
+    }
+	/* END SPI DMA CODE */
 }
 
 
@@ -130,7 +175,19 @@ void xmit_spi_multi (
 	UINT btx			/* Number of bytes to send (even number) */
 )
 {
+	/*
 	HAL_SPI_Transmit(&SD_SPI_HANDLE, buff, btx, HAL_MAX_DELAY);
+	*/
+	/* BEGIN SPI DMA CODE */
+	spi_tx_done = false;
+    if (HAL_SPI_Transmit_DMA(&SD_SPI_HANDLE, (uint8_t*)buff, btx) != HAL_OK) {
+        //HAL_SPI_Transmit(&SD_SPI_HANDLE, (uint8_t*)buff, btx, HAL_MAX_DELAY);
+        return;
+    }
+    if (!wait_flag(&spi_tx_done, 1000)) {
+        /* Optional: add error handling; fall back to blocking */
+    }
+	/* END SPI DMA CODE */
 }
 #endif
 
