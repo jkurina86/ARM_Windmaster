@@ -1,7 +1,7 @@
 /**
   ******************************************************************************
-  * @file    recorder.c
-  * @brief   Recorder module functions
-  * @note    Handles data recording from WindMaster and IMU sensors
+  * @file    task_rec.c
+  * @brief   Recorder task handlers implementation
+  * @note    Contains handlers for the recorder task
   ******************************************************************************
   */

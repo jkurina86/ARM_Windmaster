@@ -2,7 +2,6 @@
   ******************************************************************************
   * @file    filesystem.c
   * @brief   Driver for FatFS file system operations in the shell environment.
-  * @note    IMPORTANT: THIS MODULE IS ONLY INTENDED TO BE USED WITH THE SHELL COMMANDS.
   ******************************************************************************
   */
 

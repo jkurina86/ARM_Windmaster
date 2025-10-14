@@ -47,8 +47,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     startup_stm32l476xx.s
     Core/Src/ab-rtcmc-rtc.c
-    Core/Src/dummy_IMU.c
-    Core/Src/dummy_WM.c
+    Core/Src/vectornav.c
+    Core/Src/windmaster.c
+    Core/Src/sd_spi.c
     Core/Src/filesystem.c
     Core/Src/recorder.c
     Core/Src/shell.c

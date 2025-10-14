@@ -31,8 +31,8 @@
 #include "shell.h"
 #include "filesystem.h"
 #include "tasker.h"
-#include "dummy_WM.h"
-#include "dummy_IMU.h"
+#include "windmaster.h"
+#include "vectornav.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -58,9 +58,6 @@ typedef struct {
 
 #define UART_RX_BUFFER_SIZE 128
 #define DMA_BUFFER_SIZE 16384
-#define PACKET_SIZE 23
-#define WM_TEST_PACKET_SIZE 10
-#define IMU_TEST_PACKET_SIZE 11
 
 /* USER CODE END PD */
 
@@ -76,12 +73,8 @@ typedef struct {
 /* Print buffers and flags for UART2-5 */
 char uart2_print_buffer[UART_RX_BUFFER_SIZE];
 char uart3_print_buffer[UART_RX_BUFFER_SIZE];
-char uart4_print_buffer[UART_RX_BUFFER_SIZE];
-char uart5_print_buffer[UART_RX_BUFFER_SIZE];
 volatile uint8_t uart2_print_flag = 0;
 volatile uint8_t uart3_print_flag = 0;
-volatile uint8_t uart4_print_flag = 0;
-volatile uint8_t uart5_print_flag = 0;
 
 /* RTC timer notification flag set by EXTI callback */
 static volatile uint8_t rtc_timer_flag = 0;
@@ -216,21 +209,27 @@ int main(void)
   /* Initialize the shell */
   shell_init();
 
-  /* Initialize UART interrupts for input detection */
-  init_uart_interrupts();
-
   /* Set PB0 GPIO high - ENABLE pin for the USART3 transceiver */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
 
   /* Set PB4 GPIO high and PB5 GPIO low to enable the UART5 transceiver */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
 
   /* Set PB1 GPIO high - ENABLE pin for USART2 transceiver */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
 
   /* Set PB2_GPIO high to supply power to the SD card */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
+
+  /* Initialize UART interrupts for input detection */
+  init_uart_interrupts();
+
+  /* Initialize the WindMaster Sensor*/
+  wm_init();
+
+  /* Initialize the IMU Sensor*/
+  vn_init();
 
   /* Allow time for SD card power and UART lines to stabilize and clear any flags */
   HAL_Delay(100);
@@ -249,24 +248,6 @@ int main(void)
 
     /* Run any pending tasks */
     tasker_run();
-
-    /* UART2-5 print notifications */
-    if (uart2_print_flag) {
-        uart2_print_flag = 0;
-        shell_printf("\r\nUART2: %s\r\n", uart2_print_buffer);
-    }
-    if (uart3_print_flag) {
-        uart3_print_flag = 0;
-        shell_printf("\r\nUART3: %s\r\n", uart3_print_buffer);
-    }
-    if (uart4_print_flag) {
-        uart4_print_flag = 0;
-        shell_printf("\r\nUART4: %s\r\n", uart4_print_buffer);
-    }
-    if (uart5_print_flag) {
-        uart5_print_flag = 0;
-        shell_printf("\r\nUART5: %s\r\n", uart5_print_buffer);
-    }
 
   }
   /* USER CODE END 3 */

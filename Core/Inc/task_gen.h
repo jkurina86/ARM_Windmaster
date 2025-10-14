@@ -14,6 +14,7 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include <stdint.h>
+#include "tasker.h"
 
 /* Forward declarations ------------------------------------------------------------------*/
 typedef struct task_data_t task_data_t;

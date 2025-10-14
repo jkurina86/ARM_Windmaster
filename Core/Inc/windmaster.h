@@ -1,13 +1,13 @@
 /**
   ******************************************************************************
-  * @file    dummy_WM.h
-  * @brief   Dummy WindMaster functions
+  * @file    windmaster.h
+  * @brief   WindMaster functions
   * @note    Placeholder for WindMaster functionality
   ******************************************************************************
   */
 
-#ifndef INC_DUMMY_WM_H_
-#define INC_DUMMY_WM_H_
+#ifndef INC_WINDMASTER_H_
+#define INC_WINDMASTER_H_
 
 /* Includes ------------------------------------------------------------------*/
 #include <stdint.h>
@@ -21,9 +21,9 @@ typedef enum {
 } WM_State_t;
 
 /* WindMaster Data Structure: Based on Mode 10 - Binary, UVW, Long in WM manual pg. 41 */
-/*
-typedef struct {
-  char status;
+typedef struct __attribute__((packed)) {
+  uint16_t header;        // 46260, or 0xB4B4 (2 bytes)
+  uint16_t status;        // Status word
   int16_t U_axis_speed;   // U-axis wind speed
   int16_t V_axis_speed;   // V-axis wind speed
   int16_t W_axis_speed;   // W-axis wind speed
@@ -33,25 +33,24 @@ typedef struct {
   int16_t A3;             // Analog Input 3
   int16_t A4;             // Analog Input 4
   int16_t Temp;           // Temperature from PRT
-  uint64_t timestamp;     // Timestamp of the data
-} WM_Data_t;
-*/
+  uint8_t checksum;       // Checksum byte
+} WM_Packet_t;
 
-/* Struct used to test Timing from the Python dummy WM sensor */
 typedef struct {
-  char identifier[5];     /* ASCII: Identifies the sensor */
-  uint32_t packet_number; /* Tagged packet number */
-} WM_Test_t;
+  int16_t U_axis_speed;   // U-axis wind speed
+  int16_t V_axis_speed;   // V-axis wind speed
+  int16_t W_axis_speed;   // W-axis wind speed
+  int16_t SoS;            // Speed of Sound
+  int16_t Temp;           // Temperature from PRT
+} WM_Data_t;
 
 /* Function Prototypes -------------------------------------------------------*/
-void dummy_WM_init(void);
-void dummy_WM_start(uint64_t *start_time);
-void dummy_WM_stop(uint64_t *stop_time);
-bool dummy_WM_is_running(void);
-//void dummy_WM_get_data(WM_Data_t* data);
-//const char* dummy_WM_log(WM_Data_t* data);
+void wm_init(void);
+void wm_start(uint64_t *start_time);
+void wm_stop(uint64_t *stop_time);
+bool wm_is_running(void);
 
-void dummy_WM_get_test_data(WM_Test_t* test);
-bool parse_packet_test(uint8_t* buffer_start, uint16_t length, WM_Test_t* test);
+/* Parse a WindMaster data packet from a buffer */
+bool parse_wm_packet(uint8_t* buffer_start, uint16_t length, WM_Packet_t* packet);
 
-#endif /* INC_DUMMY_WM_H_ */
+#endif /* INC_WINDMASTER_H_ */

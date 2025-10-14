@@ -1,8 +1,8 @@
 /**
  ******************************************************************************
-  * @file    user_diskio_spi.h
+  * @file    sd_spi.h
   * @brief   This file contains the common defines and functions prototypes for
-  *          the user_diskio_spi driver implementation
+  *          the sd_spi driver implementation
   ******************************************************************************
   * Portions copyright (C) 2014, ChaN, all rights reserved.
   * Portions copyright (C) 2017, kiwih, all rights reserved.

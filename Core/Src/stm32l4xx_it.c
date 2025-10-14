@@ -51,20 +51,20 @@
 /* USER CODE BEGIN PV */
 
 /* RX index for each UART */
-static uint16_t uart2_rx_index = 0;
-static uint16_t uart3_rx_index = 0;
+//static uint16_t uart2_rx_index = 0;
+//static uint16_t uart3_rx_index = 0;
 //static uint16_t uart4_rx_index = 0;
 //static uint16_t uart5_rx_index = 0;
 
 /* RX character for each UART */
-static uint8_t uart2_rx_char;
-static uint8_t uart3_rx_char;
+//static uint8_t uart2_rx_char;
+//static uint8_t uart3_rx_char;
 //static uint8_t uart4_rx_char;
 //static uint8_t uart5_rx_char;
 
 /* RX buffer for each UART */
-char uart2_rx_buffer[UART_RX_BUFFER_SIZE];
-char uart3_rx_buffer[UART_RX_BUFFER_SIZE];
+//char uart2_rx_buffer[UART_RX_BUFFER_SIZE];
+//char uart3_rx_buffer[UART_RX_BUFFER_SIZE];
 //char uart4_rx_buffer[UART_RX_BUFFER_SIZE];
 //char uart5_rx_buffer[UART_RX_BUFFER_SIZE];
 
@@ -84,28 +84,30 @@ void rtc_countdown(void);
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
+extern DMA_HandleTypeDef hdma_spi1_tx;
+extern DMA_HandleTypeDef hdma_spi1_rx;
 extern SPI_HandleTypeDef hspi1;
 extern UART_HandleTypeDef huart1;
 /* USER CODE BEGIN EV */
 
-/* External (main.c) print buffer for UART */
-extern char uart2_print_buffer[UART_RX_BUFFER_SIZE];
-extern char uart3_print_buffer[UART_RX_BUFFER_SIZE];
+/* External (main.c) print buffer for UART Tests */
+//extern char uart2_print_buffer[UART_RX_BUFFER_SIZE];
+//extern char uart3_print_buffer[UART_RX_BUFFER_SIZE];
 //extern char uart4_print_buffer[UART_RX_BUFFER_SIZE];
 //extern char uart5_print_buffer[UART_RX_BUFFER_SIZE];
 
-/* External (main.c) print flags for UART */
-extern volatile uint8_t uart2_print_flag;
-extern volatile uint8_t uart3_print_flag;
+/* External (main.c) print flags for UART Tests */
+//extern volatile uint8_t uart2_print_flag;
+//extern volatile uint8_t uart3_print_flag;
 //extern volatile uint8_t uart4_print_flag;
 //extern volatile uint8_t uart5_print_flag;
 
-/* External (main.c) 20 Hz timer notification flag */
+/* External (main.c) 20 Hz timer test notification flag */
 //extern volatile uint8_t tick20_flag;
 
 /* External DMA buffer variables from dummy_WM.c */
-extern uint8_t dma_buffer[32768];
-extern uint16_t dma_old_pos;
+//extern uint8_t dma_buffer[32768];
+//extern uint16_t dma_old_pos;
 
 /* USER CODE END EV */
 
@@ -328,7 +330,7 @@ void USART2_IRQHandler(void)
   /* USER CODE BEGIN USART2_IRQn 0 */
 
   /* Handle USART2 RXNE interrupt */
-  uart_user_input(USART2, &uart2_rx_char, uart2_rx_buffer, &uart2_rx_index, uart2_print_buffer, &uart2_print_flag);
+  //uart_user_input(USART2, &uart2_rx_char, uart2_rx_buffer, &uart2_rx_index, uart2_print_buffer, &uart2_print_flag);
 
   /* USER CODE END USART2_IRQn 0 */
   /* USER CODE BEGIN USART2_IRQn 1 */
@@ -344,7 +346,7 @@ void USART3_IRQHandler(void)
   /* USER CODE BEGIN USART3_IRQn 0 */
 
   /* Handle USART3 RXNE interrupt */
-  uart_user_input(USART3, &uart3_rx_char, uart3_rx_buffer, &uart3_rx_index, uart3_print_buffer, &uart3_print_flag);
+  //uart_user_input(USART3, &uart3_rx_char, uart3_rx_buffer, &uart3_rx_index, uart3_print_buffer, &uart3_print_flag);
 
   /* USER CODE END USART3_IRQn 0 */
   /* USER CODE BEGIN USART3_IRQn 1 */
@@ -385,10 +387,48 @@ void DMA2_Channel2_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Channel2_IRQn 0 */
 
+  /* Handle DMA interrupts for UART5 RX */
+  if (LL_DMA_IsActiveFlag_TC2(DMA2)) {
+    LL_DMA_ClearFlag_TC2(DMA2);
+    /* Transfer complete - buffer is full */
+  }
+  if (LL_DMA_IsActiveFlag_HT2(DMA2)) {
+    LL_DMA_ClearFlag_HT2(DMA2);
+    /* Half transfer - buffer is half full */
+  }
+
   /* USER CODE END DMA2_Channel2_IRQn 0 */
   /* USER CODE BEGIN DMA2_Channel2_IRQn 1 */
 
   /* USER CODE END DMA2_Channel2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA2 channel3 global interrupt.
+  */
+void DMA2_Channel3_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA2_Channel3_IRQn 0 */
+
+  /* USER CODE END DMA2_Channel3_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_spi1_rx);
+  /* USER CODE BEGIN DMA2_Channel3_IRQn 1 */
+
+  /* USER CODE END DMA2_Channel3_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA2 channel4 global interrupt.
+  */
+void DMA2_Channel4_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA2_Channel4_IRQn 0 */
+
+  /* USER CODE END DMA2_Channel4_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_spi1_tx);
+  /* USER CODE BEGIN DMA2_Channel4_IRQn 1 */
+
+  /* USER CODE END DMA2_Channel4_IRQn 1 */
 }
 
 /**
@@ -398,14 +438,14 @@ void DMA2_Channel5_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Channel5_IRQn 0 */
 
-  // Handle DMA interrupts for UART4 RX
+  /* Handle DMA interrupts for UART4 RX */
   if (LL_DMA_IsActiveFlag_TC5(DMA2)) {
     LL_DMA_ClearFlag_TC5(DMA2);
-    // Transfer complete - buffer is full
+    /* Transfer complete - buffer is full */
   }
   if (LL_DMA_IsActiveFlag_HT5(DMA2)) {
     LL_DMA_ClearFlag_HT5(DMA2);
-    // Half transfer - buffer is half full
+    /* Half transfer - buffer is half full */
   }
 
   /* USER CODE END DMA2_Channel5_IRQn 0 */

@@ -1,7 +1,7 @@
 /**
  ******************************************************************************
-  * @file    user_diskio_spi.c
-  * @brief   This file contains the implementation of the user_diskio_spi FatFs
+  * @file    sd_spi.c
+  * @brief   This file contains the implementation of the sd_spi FatFs
   *          driver.
   ******************************************************************************
   * Portions copyright (C) 2014, ChaN, all rights reserved.
@@ -24,7 +24,7 @@
 
 //It is designed to be wrapped by a cubemx generated user_diskio.c file .
 
-#include <sd_spi.h>
+#include "sd_spi.h"
 #include "stm32l4xx_hal.h" /* Provide the low-level HAL functions */
 #include "main.h" /* Include the main header for GPIO and other configurations */
 
