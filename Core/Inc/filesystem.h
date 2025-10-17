@@ -15,6 +15,7 @@ extern "C" {
 #include "ff.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include "recorder.h"
 
 /* Exported types ------------------------------------------------------------*/
 /* File system operation results */
@@ -57,8 +58,13 @@ FS_Result_t filesystem_rmdir(const char *dirname);
 /* File operations */
 FS_Result_t filesystem_cat(const char *filename, void (*print_callback)(const char *));
 FS_Result_t filesystem_write(const char *filename, const char *data);
+FS_Result_t filesystem_append(const char *filename, const char *data);
 FS_Result_t filesystem_rm(const char *filename);
 FS_Result_t filesystem_cp(const char *source, const char *destination);
+
+/* Log file operations for recorder */
+FS_Result_t filesystem_open_log(FIL* log_file, const char* filename);
+FS_Result_t filesystem_log_record(FIL* log_file, const Recorder_Data_t *buffer);
 
 /* Buffer management for shell integration */
 FS_Buffers_t* filesystem_get_buffers(void);

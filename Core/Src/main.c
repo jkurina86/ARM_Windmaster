@@ -33,6 +33,7 @@
 #include "tasker.h"
 #include "windmaster.h"
 #include "vectornav.h"
+#include "recorder.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -152,6 +153,10 @@ int main(void)
   /* Start the free-running 1 MHz timer */
   LL_TIM_EnableCounter(TIM2);
 
+  /* Disable the RXNE interrupts for WM and VN */
+  LL_USART_DisableIT_RXNE(UART4);
+  LL_USART_DisableIT_RXNE(UART5);
+
   /* Start the 20 Hz timer and interrupt */
   /*
   LL_TIM_EnableIT_UPDATE(TIM4);
@@ -245,6 +250,9 @@ int main(void)
     /* USER CODE BEGIN 3 */
     /* Shell processing and parsing */
     shell_task();
+
+    /* Process recorder queues and write to SD */
+    recorder_service();
 
     /* Run any pending tasks */
     tasker_run();

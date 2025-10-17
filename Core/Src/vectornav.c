@@ -8,6 +8,7 @@
 
 #include "vectornav.h"
 #include "systime.h"
+#include "recorder.h"
 #include "stm32l4xx_ll_usart.h"
 #include "stm32l4xx_ll_dma.h"
 #include "stm32l4xx_ll_gpio.h"
@@ -71,13 +72,12 @@ void vn_init(void) {
   * @retval None
   * @note   Sends the START command to the vectornav.
   */
-void vn_start(uint64_t *start_time) {
+void vn_start(void) {
     if (imu_running == false) {
         send_command("\n"); /* Wake up the Python script for dummy sensor. */
         send_command("START\n");
         imu_running = true;
     }
-    *start_time = time_us_now();
 }
 
 /** @brief  Stop the dummy IMU
@@ -85,12 +85,11 @@ void vn_start(uint64_t *start_time) {
   * @retval None
   * @note   Sends the STOP command to the dummy IMU.
   */
-void vn_stop(uint64_t *stop_time) {
-    if (imu_running == true) {
-        send_command("STOP\n");
-        imu_running = false;
-    }
-    *stop_time = time_us_now();
+void vn_stop(void) {
+  if (imu_running == true) {
+    send_command("STOP\n");
+    imu_running = false;
+  }
 }
 
 /** @brief  Get the state of the dummy IMU
@@ -98,36 +97,58 @@ void vn_stop(uint64_t *stop_time) {
   * @retval bool: true if running, false otherwise
   */
 bool vn_is_running(void) {
-    return imu_running;
+  return imu_running;
 }
 
-/** @brief  Get the latest IMU data
-  * @param  data: Pointer to VN_Packet_t structure to fill with latest data
-  * @retval None
-  * @note   Parses the DMA buffer for new packets and updates the provided data structure.
+/** @brief  Drain and queue the latest VN packet
+  * @param  None
+  * @retval true if a valid packet was processed, false otherwise
+  * @note   Processes the DMA buffer to extract complete VN packets,
+  *         updating the latest_packet structure with the most recent valid data.
   */
-void vn_get_data(VN_Packet_t *data) {
-    if (data) {
-        /* Get current DMA position */
-        uint16_t dma_pos = DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_2);
+bool vn_drain_and_queue(void) {
+  const uint16_t WR = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_2)) & (DMA_BUFFER_SIZE - 1));
+  const uint16_t MASK = (uint16_t)(DMA_BUFFER_SIZE - 1);
 
-        /* Check for new data */
-        uint16_t bytes_available = (dma_pos >= dma_old_pos_imu) ? (dma_pos - dma_old_pos_imu) : (DMA_BUFFER_SIZE - dma_old_pos_imu + dma_pos);
+  /* Compute the number of bytes between RD and WR */
+  uint16_t rd = dma_old_pos_imu;
+  uint16_t avail = (uint16_t)((WR - rd) & MASK);
 
-        if (bytes_available >= PACKET_SIZE) {
-            /* Look for packet header in the buffer */
-            for (uint16_t i = 0; i <= bytes_available - PACKET_SIZE; i++) {
-                uint16_t check_pos = (dma_old_pos_imu + i) % DMA_BUFFER_SIZE;
-                if (dma_buffer_imu[check_pos] == 0xFA) {
-                    /* Found header, try to parse the packet */
-                    if (parse_packet(&dma_buffer_imu[check_pos], PACKET_SIZE, data)) {
-                        dma_old_pos_imu = (check_pos + PACKET_SIZE) % DMA_BUFFER_SIZE;
-                        break;
-                    }
-                }
-            }
-        }
+  bool rx_any = false;
+
+  while (avail >= PACKET_SIZE) {
+    /* Start of Packet Check */
+    if (dma_buffer_imu[rd] != 0xFA) {
+      rd = (uint16_t)((rd + 1) & MASK);
+      avail--;
+      continue;
     }
+
+    /* Copy one full packet into a linear temporary buffer */
+    uint8_t tmp[PACKET_SIZE];
+    uint16_t first = (uint16_t)(DMA_BUFFER_SIZE - rd) < PACKET_SIZE ? (uint16_t)(DMA_BUFFER_SIZE - rd) : PACKET_SIZE;
+    memcpy(tmp, &dma_buffer_imu[rd], first);
+    if (first < PACKET_SIZE) {
+      memcpy(tmp + first, &dma_buffer_imu[0], (size_t)(PACKET_SIZE - first));
+    }
+
+    /* Update the latest packet */
+    size_t copy_len = sizeof(VN_Packet_t) < PACKET_SIZE ? sizeof(VN_Packet_t) : (size_t)PACKET_SIZE;
+    memcpy(&latest_packet, tmp, copy_len);
+
+    /* Get timestamp and queue the packet for recording */
+    uint64_t timestamp_us = time_us_now();
+    recorder_queue_vn(&latest_packet, timestamp_us);
+
+    /* Advance the read pointer */
+    rd = (uint16_t)((rd + PACKET_SIZE) & MASK);
+    avail = (uint16_t)((WR - rd) & MASK);
+
+    rx_any = true;
+  }
+
+  dma_old_pos_imu = rd;
+  return rx_any;
 }
 
 /* Private functions ---------------------------------------------------------*/
@@ -138,31 +159,34 @@ void vn_get_data(VN_Packet_t *data) {
   * @note   Transmits the command string over UART5 to control the vectornav.
   */
 static void send_command(const char* cmd) {
-    while (*cmd) {
-        while (!LL_USART_IsActiveFlag_TXE(UART5));
-        LL_USART_TransmitData8(UART5, *cmd++);
-    }
+  while (*cmd) {
+    while (!LL_USART_IsActiveFlag_TXE(UART5));
+    LL_USART_TransmitData8(UART5, *cmd++);
+  }
 }
 
-/** @brief  Parse a VN packet from the DMA buffer
-  * @param  buffer_start: Pointer to the start of the packet in the DMA buffer
-  * @param  length: Length of the data available from buffer_start
-  * @param  packet: Pointer to VN_Packet_t structure to fill with parsed data
-  * @retval true if a valid packet was parsed, false otherwise
-  * @note   Validates and extracts data from a VN packet.
+/** @brief  Parse a received VN packet
+  * @param  pkt: Pointer to the start of the packet buffer
+  * @param  struct: Pointer to VN_Packet_t structure to populate
+  * @retval true if the packet is valid, false otherwise
   */
-static bool parse_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* packet) {
-    if (length < PACKET_SIZE) return false;
+bool vn_parse_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* packet) {
+  if (length < PACKET_SIZE || buffer_start[0] != 0xFA) {
+    return false; // Invalid packet
+  }
 
-    if (buffer_start[0] != 0xFA) return false;
+  /* Compute checksum */
+  uint16_t checksum = 0;
+  for (size_t i = 0; i < PACKET_SIZE - 2; i++) {
+    checksum += buffer_start[i];
+  }
 
-    /* Copy packet data */
-    memcpy(packet, buffer_start, PACKET_SIZE);
-
-    /* Checksum is big-endian, swap bytes */
-    packet->checksum = (packet->checksum >> 8) | (packet->checksum << 8);
-
-    /* TODO: Implement CRC check as per protocol */
-
-    return true;
+  /* Validate checksum (Big Endian) */
+  uint16_t received_checksum = (uint16_t)(buffer_start[PACKET_SIZE - 2] << 8 | buffer_start[PACKET_SIZE - 1]);
+  if (checksum != received_checksum) {
+    return false; // Checksum mismatch
+  }
+  
+  memcpy(packet, buffer_start, PACKET_SIZE);
+  return true;
 }

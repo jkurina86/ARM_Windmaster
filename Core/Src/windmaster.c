@@ -8,6 +8,7 @@
 
 #include "windmaster.h"
 #include "systime.h"
+#include "recorder.h"
 #include "stm32l4xx_ll_usart.h"
 #include "stm32l4xx_ll_dma.h"
 #include "stm32l4xx_ll_gpio.h"
@@ -29,7 +30,6 @@ uint16_t dma_old_pos_wm = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void send_command(const char* cmd);
-bool parse_packet(uint8_t* buffer, uint16_t length, WM_Packet_t* data);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -67,30 +67,28 @@ void wm_init(void) {
 }
 
 /** @brief  Start the WindMaster
-  * @param  start_time: Pointer to store the start time in microseconds
+  * @param  None
   * @retval None
-  * @note   Sends the START command to the WindMaster and records the start time.
+  * @note   Sends the START command to the WindMaster
   */
-void wm_start(uint64_t *start_time) {
+void wm_start(void) {
     if (!wm_running) {
         send_command("\n"); /* Wake up the Python script for dummy sensor. */
         send_command("START\n");
         wm_running = true;
     }
-    *start_time = time_us_now();
 }
 
 /** @brief  Stop the WindMaster
-  * @param  stop_time: Pointer to store the stop time in microseconds
+  * @param  None
   * @retval None
-  * @note   Sends the STOP command to the WindMaster and records the stop time.
+  * @note   Sends the STOP command to the WindMaster
   */
-void wm_stop(uint64_t *stop_time) {
+void wm_stop(void) {
     if (wm_running) {
         send_command("STOP\n");
         wm_running = false;
     }
-    *stop_time = time_us_now();
 }
 
 /** @brief  Check if the dummy WindMaster is running
@@ -99,6 +97,58 @@ void wm_stop(uint64_t *stop_time) {
   */
 bool wm_is_running(void) {
     return wm_running;
+}
+
+/** @brief Drain and queue the latest WM packet
+  * @param  None
+  * @retval true if a complete packet was processed, false otherwise
+  * @note   Processes data from the DMA buffer, extracts complete packets,
+  *         verifies checksums, and updates the latest_packet structure.
+  */
+bool wm_drain_and_queue(void)
+{
+    const uint16_t MASK = (uint16_t)(DMA_BUFFER_SIZE - 1);
+    const uint16_t wr   = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_5)) & MASK);
+
+    uint16_t rd    = dma_old_pos_wm;
+    uint16_t avail = (uint16_t)((wr - rd) & MASK);
+
+    bool got_any = false;
+
+    while (avail >= PACKET_SIZE) {
+        /* Expect 0xB4 0xB4 header (wrap-safe) */
+        uint8_t h0 = dma_buffer_wm[rd];
+        uint8_t h1 = dma_buffer_wm[(uint16_t)((rd + 1) & MASK)];
+        if (h0 != 0xB4 || h1 != 0xB4) {
+            rd = (uint16_t)((rd + 1) & MASK);
+            avail--;
+            continue;
+        }
+
+        /* Copy one full 23-byte packet from ring (wrap-safe) */
+        uint8_t pkt[PACKET_SIZE];
+        uint16_t first = (uint16_t)((DMA_BUFFER_SIZE - rd) < PACKET_SIZE ? (DMA_BUFFER_SIZE - rd) : PACKET_SIZE);
+        memcpy(pkt, &dma_buffer_wm[rd], first);
+        if (first < PACKET_SIZE) {
+            memcpy(pkt + first, &dma_buffer_wm[0], (size_t)(PACKET_SIZE - first));
+        }
+
+        /* Update latest_packet (truncate to struct size if smaller) */
+        size_t copy_len = sizeof(WM_Packet_t) < PACKET_SIZE ? sizeof(WM_Packet_t) : (size_t)PACKET_SIZE;
+        memcpy(&latest_packet, pkt, copy_len);
+
+        /* Get timestamp and queue the packet for recording */
+        uint64_t timestamp_us = time_us_now();
+        recorder_queue_wm(&latest_packet, timestamp_us);
+
+        /* Advance by exactly one packet */
+        rd    = (uint16_t)((rd + PACKET_SIZE) & MASK);
+        avail = (uint16_t)((wr - rd) & MASK);
+        got_any = true;
+    }
+
+    dma_old_pos_wm = rd;
+    return got_any;
 }
 
 /* Private functions ---------------------------------------------------------*/
@@ -115,49 +165,30 @@ static void send_command(const char* cmd) {
     }
 }
 
-/** @brief  Parse a WindMaster data packet from the DMA buffer
-  * @param  buffer: Pointer to the start of the packet in the DMA buffer
-  * @param  length: Length of the data available from buffer
-  * @param  data: Pointer to WM_Data_t structure to fill with parsed data
-  * @retval true if a valid packet was parsed, false otherwise
-  * @note   Validates and extracts data from a WindMaster packet.
+/** @brief Parse a received WM packet
+  * @param pkt: Pointer to the received packet data
+  * @param struct: Pointer to WM_Packet_t structure to populate
+  * @retval true if the packet is valid, false otherwise
+  * @note   Validates the packet structure and checksum, updating the latest_packet
+  *         structure if valid.
   */
-bool parse_wm_packet(uint8_t* buffer_start, uint16_t length, WM_Packet_t* data) {
-    if (length < PACKET_SIZE) return false;
+bool wm_parse_packet(const uint8_t* pkt, WM_Packet_t* struct) {
+  if (pkt[0] != 0xB4 || pkt[1] != 0xB4) {
+    return false; /* Invalid header */
+  }
 
-    // Copy packet data handling circular buffer wrap-around
-    uint8_t packet[PACKET_SIZE];
-    for (int i = 0; i < PACKET_SIZE; i++) {
-        packet[i] = dma_buffer_wm[(buffer_start - dma_buffer_wm + i) % DMA_BUFFER_SIZE];
-    }
+  /* Compute checksum */
+  uint8_t checksum = 0;
+  for (size_t i = 0; i < PACKET_SIZE - 1; i++) {
+    checksum ^= pkt[i];
+  }
 
-    // Check header
-    if (packet[0] != 0xB4 || packet[1] != 0xB4) {
-        return false;
-    }
+  /* Validate checksum */
+  if (checksum != pkt[PACKET_SIZE - 1]) {
+    return false; /* Checksum mismatch */
+  }
 
-    // Extract data (little-endian)
-    data->header = (uint16_t)(packet[0] | (packet[1] << 8));
-    data->status = (int16_t)(packet[2] | (packet[3] << 8));
-    data->U_axis_speed = (int16_t)(packet[4] | (packet[5] << 8));
-    data->V_axis_speed = (int16_t)(packet[6] | (packet[7] << 8));
-    data->W_axis_speed = (int16_t)(packet[8] | (packet[9] << 8));
-    data->SoS = (int16_t)(packet[10] | (packet[11] << 8));
-    data->A1 = (int16_t)(packet[12] | (packet[13] << 8));
-    data->A2 = (int16_t)(packet[14] | (packet[15] << 8));
-    data->A3 = (int16_t)(packet[16] | (packet[17] << 8));
-    data->A4 = (int16_t)(packet[18] | (packet[19] << 8));
-    data->Temp = (int16_t)(packet[20] | (packet[21] << 8));
-    data->checksum = packet[22];
-
-    // Verify checksum
-    uint8_t checksum = 0;
-    for (int i = 2; i < PACKET_SIZE - 1; i++) {
-        checksum ^= packet[i];
-    }
-    if (checksum != packet[PACKET_SIZE - 1]) {
-        return false;
-    }
-
-    return true;
+  /* Populate the structure */
+  memcpy(struct, pkt, sizeof(WM_Packet_t) < PACKET_SIZE ? sizeof(WM_Packet_t) : (size_t)PACKET_SIZE);
+  return true;
 }

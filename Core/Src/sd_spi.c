@@ -102,10 +102,11 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
     if (hspi == &SD_SPI_HANDLE) { spi_tx_done = true; spi_rx_done = true; }
 }
 
-/* Spin-wait helper with timeout (replace with RTOS semaphore if you use one) */
+/* Spin-wait helper with timeout */
 static bool wait_flag(volatile bool *flag, uint32_t timeout_ms){
     uint32_t t0 = HAL_GetTick();
     while (!*flag) {
+        HAL_Delay(1);
         if ((HAL_GetTick() - t0) > timeout_ms) return false;
     }
     *flag = false;   // consume flag

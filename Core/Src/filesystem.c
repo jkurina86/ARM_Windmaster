@@ -370,6 +370,55 @@ FS_Result_t filesystem_cp(const char *source, const char *destination)
 }
 
 /**
+  * @brief Open the log file for appending
+  * @param log_file: Pointer to FIL object for the log file
+  * @param filename: Name of the log file to open
+  * @retval FS_Result_t: Operation result
+  */
+FS_Result_t filesystem_open_log(FIL* log_file, const char* filename)
+{
+    if (!fs_mounted) {
+        return FS_NOT_MOUNTED;
+    }
+    
+    if (!log_file || !filename) {
+        return FS_INVALID_PARAM;
+    }
+    
+    fs_result = f_open(log_file, filename, FA_WRITE | FA_OPEN_APPEND);
+    if (fs_result == FR_OK) {
+        return FS_OK;
+    }
+    
+    return convert_fatfs_result(fs_result);
+}
+
+/**
+  * @brief Append 4 Recorder_Data_t structs to the log file
+  * @param log_file: Pointer to FIL object for the log file
+  * @param buffer: Pointer to buffer containing 4 Recorder_Data_t structs
+  * @retval FS_Result_t: Operation result
+  */
+FS_Result_t filesystem_log_record(FIL* log_file, const Recorder_Data_t *buffer)
+{
+    if (!fs_mounted) {
+        return FS_NOT_MOUNTED;
+    }
+    
+    if (!log_file || !buffer) {
+        return FS_INVALID_PARAM;
+    }
+    
+    UINT bytes_written;
+    fs_result = f_write(log_file, buffer, 4 * sizeof(Recorder_Data_t), &bytes_written);
+    if (fs_result == FR_OK && bytes_written == 4 * sizeof(Recorder_Data_t)) {
+        return FS_OK;
+    }
+    
+    return convert_fatfs_result(fs_result);
+}
+
+/**
   * @brief Get filesystem buffers for shell integration
   * @retval FS_Buffers_t*: Pointer to filesystem buffers
   */

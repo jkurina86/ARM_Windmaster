@@ -27,6 +27,8 @@
 #include <stdio.h>
 #include "stm32l4xx_ll_dma.h"
 #include "systime.h"
+#include "windmaster.h"
+#include "vectornav.h"
 
 /* USER CODE END Includes */
 
@@ -68,6 +70,15 @@
 //char uart4_rx_buffer[UART_RX_BUFFER_SIZE];
 //char uart5_rx_buffer[UART_RX_BUFFER_SIZE];
 
+volatile uint32_t uart4_idle_isr_count = 0;
+volatile uint32_t uart5_idle_isr_count = 0;
+volatile uint32_t uart4_err_ore = 0; 
+volatile uint32_t uart4_err_fe = 0; 
+volatile uint32_t uart4_err_ne = 0;
+volatile uint32_t uart5_err_ore = 0; 
+volatile uint32_t uart5_err_fe = 0; 
+volatile uint32_t uart5_err_ne = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -80,6 +91,31 @@ void rtc_countdown(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+static inline void usart_clear_idle(USART_TypeDef *U) {
+  (void)U->ISR;   // read ISR first
+  (void)U->RDR;   // then read RDR to actually clear IDLE
+}
+
+static inline void usart_clear_errors(USART_TypeDef *U, volatile uint32_t *ore, volatile uint32_t *fe, volatile uint32_t *ne) {
+  uint32_t isr = U->ISR;
+
+  if (isr & USART_ISR_ORE) { 
+    (*ore)++; 
+    (void)U->RDR; 
+  }   // RDR read clears ORE
+  
+  if (isr & USART_ISR_FE)  { 
+    (*fe)++; 
+  }
+  
+  if (isr & USART_ISR_NE)  { 
+    (*ne)++; 
+  }
+  
+  /* Clear error flags */
+  U->ICR = USART_ICR_FECF | USART_ICR_NCF | USART_ICR_ORECF;
+}
 
 /* USER CODE END 0 */
 
@@ -360,6 +396,24 @@ void USART3_IRQHandler(void)
 void UART4_IRQHandler(void)
 {
   /* USER CODE BEGIN UART4_IRQn 0 */
+  uint32_t isr = UART4->ISR;
+
+  /* Check for errors */
+  if (isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE)) {
+      if (isr & USART_ISR_ORE) uart4_err_ore++;
+      if (isr & USART_ISR_FE) uart4_err_fe++;
+      if (isr & USART_ISR_NE) uart4_err_ne++;
+      /* Clear error flags */
+      usart_clear_errors(&UART4->ISR, &uart4_err_ore, &uart4_err_fe, &uart4_err_ne);
+  }
+
+  /* Check for IDLE line detection */
+  if (isr & USART_ISR_IDLE) {
+    usart_clear_idle(UART4);
+    uart4_idle_isr_count++;.
+    /* Process complete packets */
+    (void)wm_drain_and_queue();
+  }
 
   /* USER CODE END UART4_IRQn 0 */
   /* USER CODE BEGIN UART4_IRQn 1 */
@@ -373,6 +427,24 @@ void UART4_IRQHandler(void)
 void UART5_IRQHandler(void)
 {
   /* USER CODE BEGIN UART5_IRQn 0 */
+  uint32_t isr = UART5->ISR;
+
+  /* Check for errors */
+  if (isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE)) {
+      if (isr & USART_ISR_ORE) uart5_err_ore++;
+      if (isr & USART_ISR_FE) uart5_err_fe++;
+      if (isr & USART_ISR_NE) uart5_err_ne++;
+      /* Clear error flags */
+      usart_clear_errors(&UART5->ISR, &uart5_err_ore, &uart5_err_fe, &uart5_err_ne);
+  }
+
+  /* Check for IDLE line detection */
+  if (isr & USART_ISR_IDLE) {
+    usart_clear_idle(UART5);
+    uart5_idle_isr_count++;
+    /* Process complete packets */
+    (void)vn_drain_and_queue();
+  }
 
   /* USER CODE END UART5_IRQn 0 */
   /* USER CODE BEGIN UART5_IRQn 1 */

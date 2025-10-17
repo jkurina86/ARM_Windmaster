@@ -53,11 +53,10 @@ typedef struct __attribute__((packed)) {
 
 /* Function Prototypes -------------------------------------------------------*/
 void vn_init(void);
-void vn_start(uint64_t *start_time);
-void vn_stop(uint64_t *stop_time);
+void vn_start(void);
+void vn_stop(void);
 bool vn_is_running(void);
-
-void vn_get_data(VN_Packet_t *data);
+bool vn_drain_and_queue(void);
 
 #ifdef __cplusplus
 }

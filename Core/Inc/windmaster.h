@@ -33,24 +33,14 @@ typedef struct __attribute__((packed)) {
   int16_t A3;             // Analog Input 3
   int16_t A4;             // Analog Input 4
   int16_t Temp;           // Temperature from PRT
-  uint8_t checksum;       // Checksum byte
+  uint8_t checksum;       // Checksum: Checksum (exclusive OR of bytes between header and checksum)
 } WM_Packet_t;
-
-typedef struct {
-  int16_t U_axis_speed;   // U-axis wind speed
-  int16_t V_axis_speed;   // V-axis wind speed
-  int16_t W_axis_speed;   // W-axis wind speed
-  int16_t SoS;            // Speed of Sound
-  int16_t Temp;           // Temperature from PRT
-} WM_Data_t;
 
 /* Function Prototypes -------------------------------------------------------*/
 void wm_init(void);
-void wm_start(uint64_t *start_time);
-void wm_stop(uint64_t *stop_time);
+void wm_start(void);
+void wm_stop(void);
 bool wm_is_running(void);
-
-/* Parse a WindMaster data packet from a buffer */
-bool parse_wm_packet(uint8_t* buffer_start, uint16_t length, WM_Packet_t* packet);
+bool wm_drain_and_queue(void);
 
 #endif /* INC_WINDMASTER_H_ */

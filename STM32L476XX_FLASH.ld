@@ -48,6 +48,7 @@ MEMORY
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 96K
   RAM2_WM    (xrw)    : ORIGIN = 0x10000000,   LENGTH = 4K
   RAM2_IMU    (xrw)    : ORIGIN = 0x10001000,   LENGTH = 16K
+  RAM2_REC    (xrw)    : ORIGIN = 0x10005000,   LENGTH = 8K
   FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1024K
 }
 
@@ -177,6 +178,16 @@ SECTIONS
   {
     *(.dma_buffer_imu)
   } >RAM2_IMU
+
+  .record_buffer_a :
+  {
+    *(.record_buffer_a)
+  } >RAM2_REC
+
+  .record_buffer_b :
+  {
+    *(.record_buffer_b)
+  } >RAM2_REC
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :
