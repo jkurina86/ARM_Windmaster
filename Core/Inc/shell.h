@@ -21,6 +21,7 @@ extern "C" {
 #include "task_gen.h"
 #include "task_fs.h"
 #include "task_rtc.h"
+#include "task_rec.h"
 
 /* Exported types ------------------------------------------------------------*/
 typedef struct {
@@ -82,6 +83,11 @@ void cmd_fs_rm(int argc, char **argv);
 void cmd_fs_mkdir(int argc, char **argv);
 void cmd_fs_rmdir(int argc, char **argv);
 void cmd_fs_cp(int argc, char **argv);
+
+/* Recorder Command functions */
+void cmd_rec_start(int argc, char **argv);
+void cmd_rec_stop(int argc, char **argv);
+void cmd_rec_stats(int argc, char **argv);
 
 #ifdef __cplusplus
 }

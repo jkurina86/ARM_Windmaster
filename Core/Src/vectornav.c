@@ -41,7 +41,7 @@ static bool parse_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* pa
   *         hardware peripherals and preparing the DMA buffer for data reception.
   */
 void vn_init(void) {
-    /* Configure UART5 for DMA RX */
+    /* Configure UART5 for DMA RX (don't disable UART to preserve TX functionality) */
     LL_USART_EnableDMAReq_RX(UART5);
 
     /* Configure DMA addresses */
@@ -58,10 +58,6 @@ void vn_init(void) {
 
     /* Start DMA reception */
     LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_2);
-
-    /* Enable UART5 RX */
-    LL_USART_EnableDirectionRx(UART5);
-    LL_USART_Enable(UART5);
 
     /* Initialize latest packet */
     memset(&latest_packet, 0, sizeof(VN_Packet_t));
@@ -87,6 +83,7 @@ void vn_start(void) {
   */
 void vn_stop(void) {
   if (imu_running == true) {
+    send_command("\n");
     send_command("STOP\n");
     imu_running = false;
   }
@@ -159,9 +156,27 @@ bool vn_drain_and_queue(void) {
   * @note   Transmits the command string over UART5 to control the vectornav.
   */
 static void send_command(const char* cmd) {
+  /* Save IDLE interrupt state and disable it during transmission */
+  uint32_t idle_enabled = LL_USART_IsEnabledIT_IDLE(UART5);
+  LL_USART_DisableIT_IDLE(UART5);
+  
   while (*cmd) {
     while (!LL_USART_IsActiveFlag_TXE(UART5));
     LL_USART_TransmitData8(UART5, *cmd++);
+  }
+  
+  /* Wait for transmission to complete */
+  while (!LL_USART_IsActiveFlag_TC(UART5));
+  
+  /* Clear any spurious IDLE flag that might have been set */
+  if (LL_USART_IsActiveFlag_IDLE(UART5)) {
+    LL_USART_ClearFlag_IDLE(UART5);
+    (void)UART5->RDR;  // Dummy read
+  }
+  
+  /* Restore IDLE interrupt state only if it was enabled before */
+  if (idle_enabled) {
+    LL_USART_EnableIT_IDLE(UART5);
   }
 }
 

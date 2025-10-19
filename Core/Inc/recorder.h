@@ -61,12 +61,30 @@ typedef struct {
   uint8_t footer_padding[30];    // Padding to reach 128 bytes
 } Recorder_Data_t;
 
+/* Statistics structure for monitoring */
+typedef struct {
+  bool recording;                 // Currently recording
+  uint32_t records_written;       // Total records written to SD
+  uint32_t active_buffer_records; // Records in active buffer
+  uint32_t active_buffer_capacity;// Active buffer capacity (32)
+  uint8_t wm_queue_count;         // Current WindMaster queue entries
+  uint8_t wm_queue_capacity;      // WindMaster queue capacity (64)
+  uint8_t vn_queue_count;         // Current VectorNav queue entries
+  uint8_t vn_queue_capacity;      // VectorNav queue capacity (64)
+  uint8_t wm_queue_max;           // Max WM queue depth seen
+  uint8_t vn_queue_max;           // Max VN queue depth seen
+  uint32_t wm_drops;              // WindMaster queue overflow drops
+  uint32_t vn_drops;              // VectorNav queue overflow drops
+  char filename[64];              // Current log filename
+} recorder_stats_t;
+
 /* Function Prototypes -------------------------------------------------------*/
 
 void recorder_init(void);
 void recorder_start(void);
 void recorder_stop(void);
 void recorder_service(void);
+recorder_stats_t recorder_get_stats(void);
 
 void recorder_queue_vn(const VN_Packet_t *pkt, uint64_t t_us);
 void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us);

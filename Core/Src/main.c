@@ -384,8 +384,7 @@ void init_uart_interrupts(void)
   /* Enable The UART RXNE interrupts */
   LL_USART_EnableIT_RXNE(USART2);
   LL_USART_EnableIT_RXNE(USART3);
-  LL_USART_EnableIT_RXNE(UART4);
-  LL_USART_EnableIT_RXNE(UART5);
+  /* Note: UART4 and UART5 use DMA with IDLE interrupt, not RXNE */
 }
 
 /**

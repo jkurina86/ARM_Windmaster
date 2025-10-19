@@ -9,6 +9,7 @@
 #include "windmaster.h"
 #include "systime.h"
 #include "recorder.h"
+#include "shell.h"
 #include "stm32l4xx_ll_usart.h"
 #include "stm32l4xx_ll_dma.h"
 #include "stm32l4xx_ll_gpio.h"
@@ -40,30 +41,31 @@ static void send_command(const char* cmd);
   *         hardware peripherals and preparing the DMA buffer for data reception.
   */
 void wm_init(void) {
-    /* Configure UART4 for DMA RX */
-    LL_USART_EnableDMAReq_RX(UART4);
+  /* Clear any pending flags and data */
+  LL_USART_ClearFlag_TC(UART4);
+  LL_USART_ClearFlag_IDLE(UART4);
+  (void)UART4->RDR;  // Dummy read to clear RX
+  
+  /* Configure UART4 for DMA RX (same as UART5 - don't disable) */
+  LL_USART_EnableDMAReq_RX(UART4);
 
-    /* Configure DMA addresses */
-    LL_DMA_ConfigAddresses(DMA2, LL_DMA_CHANNEL_5,
-                          LL_USART_DMA_GetRegAddr(UART4, LL_USART_DMA_REG_DATA_RECEIVE),
-                          (uint32_t)dma_buffer_wm,
-                          LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+  /* Configure DMA addresses */
+  LL_DMA_ConfigAddresses(DMA2, LL_DMA_CHANNEL_5,
+                        LL_USART_DMA_GetRegAddr(UART4, LL_USART_DMA_REG_DATA_RECEIVE),
+                        (uint32_t)dma_buffer_wm,
+                        LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 
-    LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_5, DMA_BUFFER_SIZE);
+  LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_5, DMA_BUFFER_SIZE);
 
-    /* Enable DMA interrupts */
-    LL_DMA_EnableIT_TC(DMA2, LL_DMA_CHANNEL_5);
-    LL_DMA_EnableIT_HT(DMA2, LL_DMA_CHANNEL_5);
+  /* Enable DMA interrupts */
+  LL_DMA_EnableIT_TC(DMA2, LL_DMA_CHANNEL_5);
+  LL_DMA_EnableIT_HT(DMA2, LL_DMA_CHANNEL_5);
 
-    /* Start DMA reception */
-    LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_5);
+  /* Start DMA reception */
+  LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_5);
 
-    /* Enable UART4 RX */
-    LL_USART_EnableDirectionRx(UART4);
-    LL_USART_Enable(UART4);
-
-    /* Initialize latest data */
-    memset(&latest_packet, 0, sizeof(WM_Packet_t));
+  /* Initialize latest data */
+  memset(&latest_packet, 0, sizeof(WM_Packet_t));
 }
 
 /** @brief  Start the WindMaster
@@ -72,11 +74,11 @@ void wm_init(void) {
   * @note   Sends the START command to the WindMaster
   */
 void wm_start(void) {
-    if (!wm_running) {
-        send_command("\n"); /* Wake up the Python script for dummy sensor. */
-        send_command("START\n");
-        wm_running = true;
-    }
+  if (!wm_running) {
+    send_command("\n"); /* Wake up the Python script for dummy sensor. */
+    send_command("START\n");
+    wm_running = true;
+  }
 }
 
 /** @brief  Stop the WindMaster
@@ -85,10 +87,11 @@ void wm_start(void) {
   * @note   Sends the STOP command to the WindMaster
   */
 void wm_stop(void) {
-    if (wm_running) {
-        send_command("STOP\n");
-        wm_running = false;
-    }
+  if (wm_running) {
+    send_command("\n");
+    send_command("STOP\n");
+    wm_running = false;
+  }
 }
 
 /** @brief  Check if the dummy WindMaster is running
@@ -96,7 +99,7 @@ void wm_stop(void) {
   * @retval true if running, false otherwise
   */
 bool wm_is_running(void) {
-    return wm_running;
+  return wm_running;
 }
 
 /** @brief Drain and queue the latest WM packet
@@ -159,27 +162,29 @@ bool wm_drain_and_queue(void)
   * @note   Transmits the command string over UART4 to control the dummy WindMaster.
   */
 static void send_command(const char* cmd) {
+    /* Simple transmission - same as working test code */
     while (*cmd) {
         while (!LL_USART_IsActiveFlag_TXE(UART4));
         LL_USART_TransmitData8(UART4, *cmd++);
     }
+    while (!LL_USART_IsActiveFlag_TC(UART4));
 }
 
 /** @brief Parse a received WM packet
   * @param pkt: Pointer to the received packet data
-  * @param struct: Pointer to WM_Packet_t structure to populate
+  * @param packet: Pointer to WM_Packet_t structure to populate
   * @retval true if the packet is valid, false otherwise
   * @note   Validates the packet structure and checksum, updating the latest_packet
   *         structure if valid.
   */
-bool wm_parse_packet(const uint8_t* pkt, WM_Packet_t* struct) {
+bool wm_parse_packet(const uint8_t* pkt, WM_Packet_t* packet) {
   if (pkt[0] != 0xB4 || pkt[1] != 0xB4) {
     return false; /* Invalid header */
   }
 
-  /* Compute checksum */
+  /* Compute checksum (XOR of bytes BETWEEN header and checksum, i.e., bytes 2-21) */
   uint8_t checksum = 0;
-  for (size_t i = 0; i < PACKET_SIZE - 1; i++) {
+  for (size_t i = 2; i < PACKET_SIZE - 1; i++) {
     checksum ^= pkt[i];
   }
 
@@ -189,6 +194,6 @@ bool wm_parse_packet(const uint8_t* pkt, WM_Packet_t* struct) {
   }
 
   /* Populate the structure */
-  memcpy(struct, pkt, sizeof(WM_Packet_t) < PACKET_SIZE ? sizeof(WM_Packet_t) : (size_t)PACKET_SIZE);
+  memcpy(packet, pkt, sizeof(WM_Packet_t) < PACKET_SIZE ? sizeof(WM_Packet_t) : (size_t)PACKET_SIZE);
   return true;
 }

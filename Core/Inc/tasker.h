@@ -19,6 +19,7 @@ extern "C" {
 #include "task_gen.h"
 #include "task_fs.h"
 #include "task_rtc.h"
+#include "task_rec.h"
 
 /* Exported types ------------------------------------------------------------*/
 
@@ -53,6 +54,11 @@ typedef enum {
     TASK_RTC_TEMP,
     TASK_RTC_GETTIME,
     TASK_RTC_SETTIME,
+    
+    /* Recorder Tasks */
+    TASK_REC_START,
+    TASK_REC_STOP,
+    TASK_REC_STATS,
     
     TASK_MAX
 } task_type_t;

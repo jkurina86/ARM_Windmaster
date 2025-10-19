@@ -71,6 +71,11 @@ const shell_command_t shell_commands[] = {
     {"fs-rmdir", "Remove a directory", cmd_fs_rmdir},
     {"fs-cp", "Copy a file", cmd_fs_cp},
 
+    /* Recorder Commands */
+    {"rec-start", "Start data recording", cmd_rec_start},
+    {"rec-stop", "Stop data recording", cmd_rec_stop},
+    {"rec-stats", "Show recorder statistics", cmd_rec_stats},
+
     {NULL, NULL, NULL} /* End marker */
 };
 
@@ -599,6 +604,44 @@ void cmd_fs_cp(int argc, char **argv)
     }
 
     schedule_fs_cp();
+}
+
+/* Recorder Commands -----------------------------------------------*/
+
+/**
+  * @brief Start data recording command
+  * @param argc: Argument count
+  * @param argv: Arguments
+  * @retval None
+  */
+void cmd_rec_start(int argc, char **argv)
+{
+    (void)argc; (void)argv; /* Unused args */
+    schedule_rec_start();
+}
+
+/**
+  * @brief Stop data recording command
+  * @param argc: Argument count
+  * @param argv: Arguments
+  * @retval None
+  */
+void cmd_rec_stop(int argc, char **argv)
+{
+    (void)argc; (void)argv; /* Unused args */
+    schedule_rec_stop();
+}
+
+/**
+  * @brief Show recorder statistics command
+  * @param argc: Argument count
+  * @param argv: Arguments
+  * @retval None
+  */
+void cmd_rec_stats(int argc, char **argv)
+{
+    (void)argc; (void)argv; /* Unused args */
+    schedule_rec_stats();
 }
 
 /* UART Interrupt Callbacks -------------------------------------------------*/

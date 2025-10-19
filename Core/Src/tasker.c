@@ -63,6 +63,11 @@ static const task_descriptor_t task_table[TASK_MAX] = {
     [TASK_RTC_TEMP] = { handle_rtc_temp, 1 },
     [TASK_RTC_GETTIME] = { handle_rtc_gettime, 1 },
     [TASK_RTC_SETTIME] = { handle_rtc_settime, 1 },
+    
+    /* Recorder Tasks */
+    [TASK_REC_START] = { handle_rec_start, 1 },
+    [TASK_REC_STOP] = { handle_rec_stop, 1 },
+    [TASK_REC_STATS] = { handle_rec_stats, 1 },
 };
 
 /* Private function prototypes -----------------------------------------------*/

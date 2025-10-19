@@ -385,7 +385,8 @@ FS_Result_t filesystem_open_log(FIL* log_file, const char* filename)
         return FS_INVALID_PARAM;
     }
     
-    fs_result = f_open(log_file, filename, FA_WRITE | FA_OPEN_APPEND);
+    /* Open for writing, create if doesn't exist, append if exists */
+    fs_result = f_open(log_file, filename, FA_WRITE | FA_OPEN_APPEND | FA_OPEN_ALWAYS);
     if (fs_result == FR_OK) {
         return FS_OK;
     }

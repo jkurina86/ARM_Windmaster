@@ -9,6 +9,7 @@
 #include "recorder.h"
 #include "filesystem.h"
 #include "systime.h"
+#include "shell.h"
 #include <stdbool.h>
 
 /* Definitions ------------------------------------------------------------------*/
@@ -43,9 +44,16 @@ static FIL log_fil;  // File object for logging
 
 char filename[64];
 
+/* Statistics tracking */
+static uint32_t wm_drops = 0;
+static uint32_t vn_drops = 0;
+static uint8_t wm_queue_max = 0;
+static uint8_t vn_queue_max = 0;
+
 /* Private function prototypes -----------------------------------------------*/
 static void flip_buffers(void);
 static Recorder_Data_t build_record(VN_Packet_t *vn_data, WM_Packet_t *wm_data);
+static uint8_t get_queue_count(uint8_t head, uint8_t tail, uint8_t len);
 
 
 void recorder_init(void) {
@@ -57,12 +65,20 @@ void recorder_init(void) {
   active_buf_index = 0;
   flush_pending = false;
 
+  /* Initialize statistics */
+  wm_drops = 0;
+  vn_drops = 0;
+  wm_queue_max = 0;
+  vn_queue_max = 0;
+
   /* Clear buffers */
   memset(record_buffer_a, 0, RECORD_BUFFER_SIZE);
   memset(record_buffer_b, 0, RECORD_BUFFER_SIZE);
 }
 
 void recorder_start(void) {
+  shell_printf("[REC] recorder_start() called\r\n");
+  
   /* Start recording */
   recording = true;
   record_index = 0;
@@ -71,17 +87,45 @@ void recorder_start(void) {
   active_buf_index = 0;
   flush_pending = false;
 
-  /* Generate log filename with timestamp */
-  snprintf(filename, sizeof(filename), "log_%08llu.bin", time_s_now());
+  /* Generate log filename */
+  snprintf(filename, sizeof(filename), "log.bin");
+  shell_printf("[REC] Filename: %s\r\n", filename);
 
-  /* Open log file for appending */
-  filesystem_open_log(&log_fil, filename);
+  /* Open log file for writing (create if doesn't exist) */
+  FS_Result_t fs_res = filesystem_open_log(&log_fil, filename);
+  shell_printf("[REC] filesystem_open_log() returned: %d\r\n", fs_res);
+  
+  if (fs_res != FS_OK) {
+    shell_printf("[REC] filesystem_open_log failed, trying f_open directly\r\n");
+    FRESULT fr = f_open(&log_fil, filename, FA_WRITE | FA_CREATE_ALWAYS);
+    shell_printf("[REC] f_open() returned: %d (FR_OK=0)\r\n", fr);
+    
+    if (fr != FR_OK) {
+      shell_printf("[REC] ERROR: File open failed! Aborting.\r\n");
+      recording = false;
+      return;
+    }
+  }
+  
+  shell_printf("[REC] File opened successfully\r\n");
+
+  /* Clear any pending IDLE flags before enabling interrupts */
+  shell_printf("[REC] Clearing IDLE flags...\r\n");
+  LL_USART_ClearFlag_IDLE(UART4);
+  LL_USART_ClearFlag_IDLE(UART5);
+  shell_printf("[REC] IDLE flags cleared\r\n");
 
   /* Enable the IDLE interrupts */
+  shell_printf("[REC] Enabling UART4 IDLE interrupt...\r\n");
   LL_USART_EnableIT_IDLE(UART4);
+  shell_printf("[REC] UART4 IDLE enabled\r\n");
+  
+  shell_printf("[REC] Enabling UART5 IDLE interrupt...\r\n");
   LL_USART_EnableIT_IDLE(UART5);
+  shell_printf("[REC] UART5 IDLE enabled\r\n");
 
-  /* Send a start command to the sensors */
+  /* Start the sensors */
+  shell_printf("[REC] Starting sensors...\r\n");
   wm_start();
   vn_start();
 
@@ -90,6 +134,10 @@ void recorder_start(void) {
 void recorder_stop(void) {
   /* Stop recording */
   recording = false;
+
+  /* Stop the sensors */
+  wm_stop();
+  vn_stop();
 
   /* Flush any remaining data in the active buffer */
   if (active_buf_index > 0) {
@@ -127,10 +175,19 @@ void recorder_stop(void) {
 void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us)
 {
   uint8_t next = (wm_q_head + 1) & (WM_Q_LEN - 1);
-  if (next == wm_q_tail) return; // queue full
+  if (next == wm_q_tail) {
+    wm_drops++; // Track queue overflow
+    return; // queue full
+  }
   wm_queue[wm_q_head].wm_packet = *pkt;
   wm_queue[wm_q_head].timestamp_us = t_us;
   wm_q_head = next;
+  
+  /* Track max queue depth */
+  uint8_t count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
+  if (count > wm_queue_max) {
+    wm_queue_max = count;
+  }
 }
 
 /* @brief Queue a VectorNav packet for recording 
@@ -141,10 +198,19 @@ void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us)
 void recorder_queue_vn(const VN_Packet_t *pkt, uint64_t t_us)
 {
   uint8_t next = (vn_q_head + 1) & (VN_Q_LEN - 1);
-  if (next == vn_q_tail) return; // queue full
+  if (next == vn_q_tail) {
+    vn_drops++; // Track queue overflow
+    return; // queue full
+  }
   vn_queue[vn_q_head].vn_packet = *pkt;
   vn_queue[vn_q_head].timestamp_us = t_us;
   vn_q_head = next;
+  
+  /* Track max queue depth */
+  uint8_t count = get_queue_count(vn_q_head, vn_q_tail, VN_Q_LEN);
+  if (count > vn_queue_max) {
+    vn_queue_max = count;
+  }
 }
 
 void recorder_service(void) {
@@ -250,4 +316,44 @@ Recorder_Data_t build_record(VN_Packet_t *vn_data, WM_Packet_t *wm_data) {
     record.Temp = wm_data->Temp;
 
     return record;
+}
+
+/* @brief Calculate queue count (number of entries)
+  * @param head: Queue head index
+  * @param tail: Queue tail index
+  * @param len: Queue length
+  * @retval Number of entries in queue
+  */
+static uint8_t get_queue_count(uint8_t head, uint8_t tail, uint8_t len)
+{
+  return (uint8_t)((head - tail) & (len - 1));
+}
+
+/* @brief Get recorder statistics
+  * @param None
+  * @retval recorder_stats_t: Statistics structure
+  */
+recorder_stats_t recorder_get_stats(void)
+{
+  recorder_stats_t stats;
+  
+  stats.recording = recording;
+  stats.records_written = record_index;
+  stats.active_buffer_records = active_buf_index;
+  stats.active_buffer_capacity = 32; // 4KB / 128 bytes
+  
+  stats.wm_queue_count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
+  stats.wm_queue_capacity = WM_Q_LEN;
+  stats.vn_queue_count = get_queue_count(vn_q_head, vn_q_tail, VN_Q_LEN);
+  stats.vn_queue_capacity = VN_Q_LEN;
+  
+  stats.wm_queue_max = wm_queue_max;
+  stats.vn_queue_max = vn_queue_max;
+  stats.wm_drops = wm_drops;
+  stats.vn_drops = vn_drops;
+  
+  strncpy(stats.filename, filename, sizeof(stats.filename) - 1);
+  stats.filename[sizeof(stats.filename) - 1] = '\0';
+  
+  return stats;
 }

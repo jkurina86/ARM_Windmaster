@@ -400,17 +400,14 @@ void UART4_IRQHandler(void)
 
   /* Check for errors */
   if (isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE)) {
-      if (isr & USART_ISR_ORE) uart4_err_ore++;
-      if (isr & USART_ISR_FE) uart4_err_fe++;
-      if (isr & USART_ISR_NE) uart4_err_ne++;
       /* Clear error flags */
-      usart_clear_errors(&UART4->ISR, &uart4_err_ore, &uart4_err_fe, &uart4_err_ne);
+      usart_clear_errors(UART4, &uart4_err_ore, &uart4_err_fe, &uart4_err_ne);
   }
 
   /* Check for IDLE line detection */
   if (isr & USART_ISR_IDLE) {
     usart_clear_idle(UART4);
-    uart4_idle_isr_count++;.
+    uart4_idle_isr_count++;
     /* Process complete packets */
     (void)wm_drain_and_queue();
   }
@@ -431,11 +428,8 @@ void UART5_IRQHandler(void)
 
   /* Check for errors */
   if (isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE)) {
-      if (isr & USART_ISR_ORE) uart5_err_ore++;
-      if (isr & USART_ISR_FE) uart5_err_fe++;
-      if (isr & USART_ISR_NE) uart5_err_ne++;
       /* Clear error flags */
-      usart_clear_errors(&UART5->ISR, &uart5_err_ore, &uart5_err_fe, &uart5_err_ne);
+      usart_clear_errors(UART5, &uart5_err_ore, &uart5_err_fe, &uart5_err_ne);
   }
 
   /* Check for IDLE line detection */

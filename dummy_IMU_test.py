@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-# RS-232 packet sender with START/STOP control (Windows)
-# - Prompts for COM port
+# VectorNav IMU Dummy Sensor (Windows)
+# - Generates VN_Packet_t structures matching vectornav.h
 # - 115200 8-N-1
-# - Can run continuously or send a fixed number of packets
-# - Sends 10-byte test packets at 20 Hz after "START"
+# - 86-byte packets at 20 Hz after "START"
 # - Halts on "STOP"
 
 import sys
@@ -11,9 +10,11 @@ import time
 import struct
 import serial
 import serial.tools.list_ports
+import math
 
 BAUD = 115200
 SEND_INTERVAL_S = 0.050  # 20 Hz
+PACKET_SIZE = 86  # VN_Packet_t size
 
 def pick_com_port():
     ports = list(serial.tools.list_ports.comports())
@@ -51,9 +52,96 @@ def pick_mode():
     return None  # None = continuous
 
 def build_packet(packet_number):
-    header = bytes([0xB4, 0xB4])
-    body = b'<IMU>' + struct.pack('<I', packet_number)  # little-endian uint32
-    return header + body
+    """
+    Build a VN_Packet_t structure (86 bytes total):
+    
+    typedef struct __attribute__((packed)) {
+      uint8_t sync;            // 0xFA
+      uint8_t group;           // 0x01
+      uint16_t types_common;   // 0x0000
+      uint64_t timegps;        // nanoseconds since 1980
+      float yaw, pitch, roll;
+      float gyro_x, gyro_y, gyro_z;
+      double latitude, longitude, altitude;
+      float vel_n, vel_e, vel_d;
+      float acc_x, acc_y, acc_z;
+      uint16_t checksum;       // big-endian
+    } VN_Packet_t;
+    """
+    
+    # Generate some varying dummy data
+    t = packet_number * SEND_INTERVAL_S
+    
+    # Header
+    sync = 0xFA
+    group = 0x01
+    types_common = 0x0000
+    
+    # Timestamp: nanoseconds since GPS epoch (1980-01-06)
+    # Use packet number to simulate time progression
+    timegps = int(1.3e18 + packet_number * 50e6)  # ~41 years + packet interval
+    
+    # Attitude (degrees) - simulate gentle oscillation
+    yaw = 45.0 + 10.0 * math.sin(t * 0.5)
+    pitch = 5.0 + 3.0 * math.sin(t * 0.3)
+    roll = 2.0 + 2.0 * math.cos(t * 0.4)
+    
+    # Gyro rates (deg/s)
+    gyro_x = 0.1 * math.sin(t * 0.7)
+    gyro_y = 0.05 * math.cos(t * 0.6)
+    gyro_z = 0.02 * math.sin(t * 0.5)
+    
+    # Position (example: somewhere in the middle of the US)
+    latitude = 39.8283 + 0.0001 * math.sin(t * 0.1)
+    longitude = -98.5795 + 0.0001 * math.cos(t * 0.1)
+    altitude = 500.0 + 10.0 * math.sin(t * 0.2)
+    
+    # Velocity (m/s) - NED frame
+    vel_n = 2.0 + 0.5 * math.sin(t * 0.3)
+    vel_e = 1.5 + 0.5 * math.cos(t * 0.4)
+    vel_d = -0.1 * math.sin(t * 0.2)
+    
+    # Acceleration (m/s^2)
+    acc_x = 0.05 * math.sin(t * 1.0)
+    acc_y = 0.03 * math.cos(t * 1.2)
+    acc_z = 9.81 + 0.02 * math.sin(t * 0.8)  # Gravity + small variation
+    
+    # Pack the packet (little-endian except checksum)
+    # Format: B=uint8, H=uint16, Q=uint64, f=float, d=double
+    packet_without_checksum = struct.pack(
+        '<BBHQffffffdddffffff',
+        sync,           # uint8_t
+        group,          # uint8_t
+        types_common,   # uint16_t (LE)
+        timegps,        # uint64_t (LE)
+        yaw,            # float (LE)
+        pitch,          # float (LE)
+        roll,           # float (LE)
+        gyro_x,         # float (LE)
+        gyro_y,         # float (LE)
+        gyro_z,         # float (LE)
+        latitude,       # double (LE)
+        longitude,      # double (LE)
+        altitude,       # double (LE)
+        vel_n,          # float (LE)
+        vel_e,          # float (LE)
+        vel_d,          # float (LE)
+        acc_x,          # float (LE)
+        acc_y,          # float (LE)
+        acc_z           # float (LE)
+    )
+    
+    # Calculate checksum (sum of all bytes including sync, big-endian format)
+    # Note: C code sums from index 0 to PACKET_SIZE-2 (all bytes except checksum itself)
+    checksum = sum(packet_without_checksum) & 0xFFFF
+    
+    # Pack checksum as big-endian uint16
+    checksum_bytes = struct.pack('>H', checksum)
+    
+    # Combine
+    packet = packet_without_checksum + checksum_bytes
+    
+    return packet
 
 def hex_str(b: bytes) -> str:
     return " ".join(f"{x:02X}" for x in b)
@@ -78,13 +166,21 @@ def main():
 
     pkt = build_packet(1)  # Example packet for display
     print(f"\nOpened {ser.port} @ {BAUD} 8N1")
-    print(f"Packet (11 bytes): {hex_str(pkt)}")
+    print(f"VectorNav IMU Simulator")
+    print(f"Packet size: {len(pkt)} bytes (expected: {PACKET_SIZE})")
+    print(f"First packet hex (first 32 bytes): {hex_str(pkt[:32])}")
     if count_limit:
         print(f"Mode: fixed count ({count_limit} packets)")
     else:
         print("Mode: continuous until STOP or Ctrl+C")
 
     print("\nWaiting for START (send ASCII 'START' from peer)...")
+    print("Packet structure:")
+    print("  - sync: 0xFA")
+    print("  - YPR: varying between reasonable values")
+    print("  - GPS: lat ~39.8°N, lon ~98.6°W, alt ~500m")
+    print("  - Rate: 20 Hz (50ms interval)")
+    print()
 
     started = False
     cmd_buf = ""
@@ -140,6 +236,13 @@ def main():
                 ser.flush()
                 sent_count += 1
                 next_send += SEND_INTERVAL_S
+                
+                # Show progress every 100 packets
+                if sent_count % 100 == 0:
+                    elapsed = now - (next_send - sent_count * SEND_INTERVAL_S)
+                    actual_rate = sent_count / elapsed if elapsed > 0 else 0
+                    print(f"[TX] {sent_count} packets sent (avg rate: {actual_rate:.1f} Hz)")
+                
                 if count_limit and sent_count >= count_limit:
                     print(f"Sent {sent_count} packets → done.")
                     break
