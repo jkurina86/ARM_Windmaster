@@ -107,6 +107,7 @@ bool wm_is_running(void) {
   * @retval true if a complete packet was processed, false otherwise
   * @note   Processes data from the DMA buffer, extracts complete packets,
   *         verifies checksums, and updates the latest_packet structure.
+  * @note   ISR-safe with iteration limit to prevent blocking
   */
 bool wm_drain_and_queue(void)
 {
@@ -117,8 +118,11 @@ bool wm_drain_and_queue(void)
     uint16_t avail = (uint16_t)((wr - rd) & MASK);
 
     bool got_any = false;
+    uint16_t iterations = 0;
+    const uint16_t MAX_ITERATIONS = 200; // Prevent ISR from running too long
 
-    while (avail >= PACKET_SIZE) {
+    while (avail >= PACKET_SIZE && iterations < MAX_ITERATIONS) {
+        iterations++;
         /* Expect 0xB4 0xB4 header (wrap-safe) */
         uint8_t h0 = dma_buffer_wm[rd];
         uint8_t h1 = dma_buffer_wm[(uint16_t)((rd + 1) & MASK)];

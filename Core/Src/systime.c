@@ -167,16 +167,22 @@ void systime_pps_event(void) {
   * @param None
   * @retval Current time in microseconds (Epoch * 1,000,000 + sub-second microseconds)
   * @note Combines RTC epoch time with TIM2 counter and phase adjustment
+  * @note Safe to call from ISR - preserves interrupt state
 */
 uint64_t time_us_now(void) {
+    /* Save and disable interrupts atomically - safe to call from ISR */
+    uint32_t primask = __get_PRIMASK();
     __disable_irq();
+
     uint32_t counter = LL_TIM_GetCounter(TIM2);
     uint32_t pps_t2 = g_pps_t2;
     uint64_t epoch = g_epoch_time;
     uint64_t scale = g_scale_q32;
     uint64_t tps = g_tps_est;
     int64_t phase = g_phase;
-    __enable_irq();
+
+    /* Restore previous interrupt state */
+    __set_PRIMASK(primask);
 
     /* Ticks since last PPS */
     int32_t delta = (int32_t)(counter - pps_t2);
@@ -215,16 +221,21 @@ uint64_t time_us_now(void) {
   * @param None
   * @retval Current time in seconds
   * @note Direct calculation avoiding microsecond conversion issues
+  * @note Safe to call from ISR - preserves interrupt state
 */
 uint64_t time_s_now(void) {
-    /* Disable interrupts to ensure atomic read of global variables */
+    /* Save and disable interrupts atomically - safe to call from ISR */
+    uint32_t primask = __get_PRIMASK();
     __disable_irq();
+
     uint32_t counter = LL_TIM_GetCounter(TIM2);
     uint32_t pps_t2 = g_pps_t2;
     uint64_t epoch = g_epoch_time;
     uint64_t tps = g_tps_est;
     int64_t phase = g_phase;
-    __enable_irq();
+
+    /* Restore previous interrupt state */
+    __set_PRIMASK(primask);
 
     /* Ticks since last PPS */
     int32_t delta = (int32_t)(counter - pps_t2);

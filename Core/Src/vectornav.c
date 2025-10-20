@@ -102,6 +102,7 @@ bool vn_is_running(void) {
   * @retval true if a valid packet was processed, false otherwise
   * @note   Processes the DMA buffer to extract complete VN packets,
   *         updating the latest_packet structure with the most recent valid data.
+  * @note   ISR-safe with iteration limit to prevent blocking
   */
 bool vn_drain_and_queue(void) {
   const uint16_t WR = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_2)) & (DMA_BUFFER_SIZE - 1));
@@ -112,8 +113,11 @@ bool vn_drain_and_queue(void) {
   uint16_t avail = (uint16_t)((WR - rd) & MASK);
 
   bool rx_any = false;
+  uint16_t iterations = 0;
+  const uint16_t MAX_ITERATIONS = 200; // Prevent ISR from running too long
 
-  while (avail >= PACKET_SIZE) {
+  while (avail >= PACKET_SIZE && iterations < MAX_ITERATIONS) {
+    iterations++;
     /* Start of Packet Check */
     if (dma_buffer_imu[rd] != 0xFA) {
       rd = (uint16_t)((rd + 1) & MASK);
@@ -154,29 +158,21 @@ bool vn_drain_and_queue(void) {
   * @param  cmd: Null-terminated command string to send
   * @retval None
   * @note   Transmits the command string over UART5 to control the vectornav.
+  * @note   IDLE interrupts are never enabled in polling architecture
   */
 static void send_command(const char* cmd) {
-  /* Save IDLE interrupt state and disable it during transmission */
-  uint32_t idle_enabled = LL_USART_IsEnabledIT_IDLE(UART5);
-  LL_USART_DisableIT_IDLE(UART5);
-  
   while (*cmd) {
     while (!LL_USART_IsActiveFlag_TXE(UART5));
     LL_USART_TransmitData8(UART5, *cmd++);
   }
-  
+
   /* Wait for transmission to complete */
   while (!LL_USART_IsActiveFlag_TC(UART5));
-  
-  /* Clear any spurious IDLE flag that might have been set */
+
+  /* Clear any spurious IDLE flag that might have been set during TX */
   if (LL_USART_IsActiveFlag_IDLE(UART5)) {
     LL_USART_ClearFlag_IDLE(UART5);
-    (void)UART5->RDR;  // Dummy read
-  }
-  
-  /* Restore IDLE interrupt state only if it was enabled before */
-  if (idle_enabled) {
-    LL_USART_EnableIT_IDLE(UART5);
+    (void)UART5->RDR;  // Dummy read to clear flag
   }
 }
 

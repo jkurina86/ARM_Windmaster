@@ -50,16 +50,20 @@ void schedule_rec_stats(void)
   * @param task_data: Pointer to task data (unused for this task)
   * @retval None
   * @note Called from main loop via tasker
+  * @note Shell output BEFORE recorder_start() to avoid UART deadlock
   */
 void handle_rec_start(const task_data_t *task_data)
 {
     /* Clear task flag first */
     tasker_clear_task_pending(TASK_REC_START);
-    
+
+    /* Print messages BEFORE starting recorder to avoid UART interrupt conflicts */
     shell_print("Starting recorder...\r\n");
-    recorder_start();
     shell_print("Recorder started! Use rec-stop to stop recording.\r\n");
     shell_print(SHELL_PROMPT);
+
+    /* Now start recorder - sensors will begin transmitting immediately */
+    recorder_start();
 }
 
 /**
@@ -116,11 +120,11 @@ void handle_rec_stats(const task_data_t *task_data)
     shell_printf("Max VN queue depth: %u\r\n", stats.vn_queue_max);
     
     if (stats.wm_drops > 0 || stats.vn_drops > 0) {
-        shell_print("\r\n⚠ WARNING: Packet drops detected!\r\n");
+        shell_print("\r\nWARNING: Packet drops detected!\r\n");
         shell_printf("WindMaster drops: %lu\r\n", stats.wm_drops);
         shell_printf("VectorNav drops:  %lu\r\n", stats.vn_drops);
     } else {
-        shell_print("\r\n✓ No packet drops\r\n");
+        shell_print("\r\nNo packet drops\r\n");
     }
     
     if (stats.recording) {

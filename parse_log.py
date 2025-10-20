@@ -18,6 +18,7 @@ import argparse
 from pathlib import Path
 from typing import NamedTuple, List
 import csv
+from datetime import datetime, timezone, timedelta
 
 
 class RecorderData(NamedTuple):
@@ -50,7 +51,8 @@ class RecorderData(NamedTuple):
 
 # Struct format string (Little Endian):
 # I = uint32_t, Q = uint64_t, f = float, d = double, h = int16_t
-RECORD_FORMAT = '<IIQfffffffffdddhhhhhh'
+# Format: magic(I) index(I) time(Q) 12×float 3×double 5×int16
+RECORD_FORMAT = '<IIQffffffffffffdddhhhhh'
 RECORD_SIZE = 128
 PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # Should be 98 bytes (30 bytes padding at end)
 
@@ -128,10 +130,10 @@ def parse_log_file(filepath: Path, verbose: bool = False) -> List[RecorderData]:
                 warnings.append(f"Error parsing record {index}: {e}")
                 break
     
-    print(f"✓ Parsed {len(records)} records")
+    print(f"[OK] Parsed {len(records)} records")
     
     if warnings:
-        print(f"\n⚠ {len(warnings)} warnings:")
+        print(f"\n[WARN] {len(warnings)} warnings:")
         for warn in warnings[:10]:  # Show first 10 warnings
             print(f"  - {warn}")
         if len(warnings) > 10:
@@ -175,9 +177,9 @@ def print_statistics(records: List[RecorderData]):
             missing_indices.append((expected, records[i].log_index))
     
     if missing_indices:
-        print(f"\n⚠ {len(missing_indices)} index discontinuities detected")
+        print(f"\n[WARN] {len(missing_indices)} index discontinuities detected")
     else:
-        print("\n✓ All indices are continuous (no dropped packets)")
+        print("\n[OK] All indices are continuous (no dropped packets)")
     
     # Data ranges
     print("\nData Ranges:")
@@ -199,20 +201,84 @@ def export_csv(records: List[RecorderData], output_path: Path):
     if not records:
         print("No records to export")
         return
-    
+
     fieldnames = RecorderData._fields[:-1]  # Exclude padding
-    
+
     with open(output_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        
+
         # Header
         writer.writerow(fieldnames)
-        
+
         # Data
         for record in records:
             writer.writerow(record[:-1])  # Exclude padding
-    
-    print(f"\n✓ Exported {len(records)} records to {output_path}")
+
+    print(f"\n[OK] Exported {len(records)} records to {output_path}")
+
+
+def export_txt(records: List[RecorderData], output_path: Path):
+    """Export records to human-readable text file"""
+    if not records:
+        print("No records to export")
+        return
+
+    with open(output_path, 'w') as f:
+        f.write("=" * 80 + "\n")
+        f.write("ARM_Windmaster Data Log - Human Readable Format\n")
+        f.write("=" * 80 + "\n")
+        f.write(f"Total Records: {len(records)}\n")
+        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write("=" * 80 + "\n\n")
+
+        for i, record in enumerate(records):
+            f.write(f"Record #{i} (Index: {record.log_index})\n")
+            f.write("-" * 80 + "\n")
+
+            # Timestamp - convert microseconds since 2000-01-01 00:00:00 UTC to local time
+            # System epoch is January 1, 2000 00:00:00 UTC (not Unix epoch)
+            # Total seconds and microseconds
+            total_seconds = record.timegps // 1_000_000
+            microseconds = record.timegps % 1_000_000
+
+            # Convert seconds since 2000-01-01 UTC to Unix timestamp
+            # Unix epoch: 1970-01-01, GPS 2000 epoch: 2000-01-01
+            # Seconds between 1970-01-01 and 2000-01-01 = 946684800
+            unix_timestamp = total_seconds + 946684800
+
+            # Create datetime in UTC, then convert to local timezone
+            # fromtimestamp() with tz=timezone.utc creates UTC datetime, then astimezone() converts to local
+            dt_utc = datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
+            dt = dt_utc.astimezone()
+
+            # Extract milliseconds for display
+            ms = microseconds // 1000
+            timestamp_str = dt.strftime('%d-%m-%Y %H:%M:%S') + f".{ms:03d}"
+
+            f.write(f"  Timestamp: {timestamp_str}\n")
+            f.write(f"            ({record.timegps} us since 2000-01-01)\n\n")
+
+            # VectorNav (IMU/GPS) Data
+            f.write("  VectorNav Data:\n")
+            f.write(f"    Attitude (YPR):  {record.yaw:7.2f}deg {record.pitch:7.2f}deg {record.roll:7.2f}deg\n")
+            f.write(f"    Velocity (NED):  {record.vel_n:8.3f} {record.vel_e:8.3f} {record.vel_d:8.3f} m/s\n")
+            f.write(f"    Accel (XYZ):     {record.acc_x:8.3f} {record.acc_y:8.3f} {record.acc_z:8.3f} m/s^2\n")
+            f.write(f"    Gyro (XYZ):      {record.gyro_x:8.3f} {record.gyro_y:8.3f} {record.gyro_z:8.3f} rad/s\n")
+            f.write(f"    Position (LLA):  {record.latitude:11.6f}deg {record.longitude:11.6f}deg {record.altitude:8.2f}m\n\n")
+
+            # WindMaster Data
+            f.write("  WindMaster Data:\n")
+            f.write(f"    Wind Speed (UVW): {record.U_axis_speed:6d} {record.V_axis_speed:6d} {record.W_axis_speed:6d} (raw)\n")
+            f.write(f"    Speed of Sound:   {record.SoS:6d} (raw)\n")
+            f.write(f"    Temperature:      {record.Temp:6d} (raw)\n")
+
+            f.write("\n")
+
+        f.write("=" * 80 + "\n")
+        f.write("End of Log\n")
+        f.write("=" * 80 + "\n")
+
+    print(f"\n[OK] Exported {len(records)} records to {output_path}")
 
 
 def main():
@@ -223,6 +289,7 @@ def main():
     )
     parser.add_argument('logfile', type=Path, help='Binary log file to parse')
     parser.add_argument('--csv', type=Path, metavar='OUTPUT', help='Export to CSV file')
+    parser.add_argument('--txt', type=Path, metavar='OUTPUT', help='Export to human-readable text file')
     parser.add_argument('--stats', action='store_true', help='Print statistics')
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
     parser.add_argument('--head', type=int, metavar='N', help='Show first N records')
@@ -259,8 +326,12 @@ def main():
     # CSV export
     if args.csv:
         export_csv(records, args.csv)
-    
-    print("\n✓ Done")
+
+    # Text export
+    if args.txt:
+        export_txt(records, args.txt)
+
+    print("\n[OK] Done")
 
 
 if __name__ == '__main__':

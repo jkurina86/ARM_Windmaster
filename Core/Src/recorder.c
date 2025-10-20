@@ -18,6 +18,7 @@
 #define WM_Q_LEN 64
 #define VN_Q_LEN 64
 #define RECORD_BUFFER_SIZE 4096  // 4 KB buffer size
+#define MAX_RECORDS_PER_SERVICE 32  // Process max 1 buffer per service call for cooperative multitasking
 
 /* Queue Structures */
 static WM_QueueEntry_t wm_queue[WM_Q_LEN];
@@ -77,8 +78,6 @@ void recorder_init(void) {
 }
 
 void recorder_start(void) {
-  shell_printf("[REC] recorder_start() called\r\n");
-  
   /* Start recording */
   recording = true;
   record_index = 0;
@@ -89,46 +88,30 @@ void recorder_start(void) {
 
   /* Generate log filename */
   snprintf(filename, sizeof(filename), "log.bin");
-  shell_printf("[REC] Filename: %s\r\n", filename);
 
   /* Open log file for writing (create if doesn't exist) */
   FS_Result_t fs_res = filesystem_open_log(&log_fil, filename);
-  shell_printf("[REC] filesystem_open_log() returned: %d\r\n", fs_res);
-  
+
   if (fs_res != FS_OK) {
-    shell_printf("[REC] filesystem_open_log failed, trying f_open directly\r\n");
     FRESULT fr = f_open(&log_fil, filename, FA_WRITE | FA_CREATE_ALWAYS);
-    shell_printf("[REC] f_open() returned: %d (FR_OK=0)\r\n", fr);
-    
+
     if (fr != FR_OK) {
-      shell_printf("[REC] ERROR: File open failed! Aborting.\r\n");
+      shell_printf("[REC] ERROR: File open failed (code %d)! Aborting.\r\n", fr);
       recording = false;
       return;
     }
   }
-  
-  shell_printf("[REC] File opened successfully\r\n");
 
-  /* Clear any pending IDLE flags before enabling interrupts */
-  shell_printf("[REC] Clearing IDLE flags...\r\n");
+  /* Clear any pending IDLE flags */
   LL_USART_ClearFlag_IDLE(UART4);
   LL_USART_ClearFlag_IDLE(UART5);
-  shell_printf("[REC] IDLE flags cleared\r\n");
 
-  /* Enable the IDLE interrupts */
-  shell_printf("[REC] Enabling UART4 IDLE interrupt...\r\n");
-  LL_USART_EnableIT_IDLE(UART4);
-  shell_printf("[REC] UART4 IDLE enabled\r\n");
-  
-  shell_printf("[REC] Enabling UART5 IDLE interrupt...\r\n");
-  LL_USART_EnableIT_IDLE(UART5);
-  shell_printf("[REC] UART5 IDLE enabled\r\n");
+  /* NOTE: IDLE interrupts NOT enabled - using polling in recorder_service() instead
+   * This prevents ISR/main loop reentrance conflicts on UART/DMA registers */
 
   /* Start the sensors */
-  shell_printf("[REC] Starting sensors...\r\n");
   wm_start();
   vn_start();
-
 }
 
 void recorder_stop(void) {
@@ -161,16 +144,15 @@ void recorder_stop(void) {
   /* Close the log file */
   f_close(&log_fil);
 
-  /* Disable the IDLE interrupts */
-  LL_USART_DisableIT_IDLE(UART4);
-  LL_USART_DisableIT_IDLE(UART5);
+  /* NOTE: IDLE interrupts were never enabled, nothing to disable */
 
 }
 
-/* @brief Queue a WindMaster packet for recording 
+/* @brief Queue a WindMaster packet for recording
  * @param pkt: Pointer to WM_Packet_t structure with WindMaster data
  * @param t_us: Timestamp in microseconds
  * @retval None
+ * @note Called from UART ISR - uses critical section for queue head update
   */
 void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us)
 {
@@ -179,10 +161,15 @@ void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us)
     wm_drops++; // Track queue overflow
     return; // queue full
   }
+
   wm_queue[wm_q_head].wm_packet = *pkt;
   wm_queue[wm_q_head].timestamp_us = t_us;
+
+  /* Update head atomically - prevent main loop from reading inconsistent state */
+  __disable_irq();
   wm_q_head = next;
-  
+  __enable_irq();
+
   /* Track max queue depth */
   uint8_t count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
   if (count > wm_queue_max) {
@@ -190,10 +177,11 @@ void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us)
   }
 }
 
-/* @brief Queue a VectorNav packet for recording 
+/* @brief Queue a VectorNav packet for recording
  * @param pkt: Pointer to VN_Packet_t structure with IMU data
  * @param t_us: Timestamp in microseconds
  * @retval None
+ * @note Called from UART ISR - uses critical section for queue head update
   */
 void recorder_queue_vn(const VN_Packet_t *pkt, uint64_t t_us)
 {
@@ -202,10 +190,15 @@ void recorder_queue_vn(const VN_Packet_t *pkt, uint64_t t_us)
     vn_drops++; // Track queue overflow
     return; // queue full
   }
+
   vn_queue[vn_q_head].vn_packet = *pkt;
   vn_queue[vn_q_head].timestamp_us = t_us;
+
+  /* Update head atomically - prevent main loop from reading inconsistent state */
+  __disable_irq();
   vn_q_head = next;
-  
+  __enable_irq();
+
   /* Track max queue depth */
   uint8_t count = get_queue_count(vn_q_head, vn_q_tail, VN_Q_LEN);
   if (count > vn_queue_max) {
@@ -218,8 +211,21 @@ void recorder_service(void) {
     return;
   }
 
-  /* Process all available pairs from the queues */
-  while (wm_q_tail != wm_q_head && vn_q_tail != vn_q_head) {
+  /* Drain DMA buffers and queue packets (moved from ISR to main loop) */
+  wm_drain_and_queue();
+  vn_drain_and_queue();
+
+  /* Process up to MAX_RECORDS_PER_SERVICE pairs per call to ensure
+   * cooperative multitasking with shell and tasker in main loop.
+   * With 64-entry queues and 20Hz sensors, this provides ample headroom
+   * while guaranteeing return to main loop within ~100ms.
+   */
+  uint8_t records_processed = 0;
+
+  while (wm_q_tail != wm_q_head &&
+         vn_q_tail != vn_q_head &&
+         records_processed < MAX_RECORDS_PER_SERVICE) {
+
     WM_QueueEntry_t *wm = &wm_queue[wm_q_tail];
     VN_QueueEntry_t *vn = &vn_queue[vn_q_tail];
 
@@ -232,9 +238,10 @@ void recorder_service(void) {
     /* Copy the record into the active buffer at the current position */
     Recorder_Data_t* dest = (Recorder_Data_t*)(active_buffer + (active_buf_index * sizeof(Recorder_Data_t)));
     memcpy(dest, &record, sizeof(Recorder_Data_t));
-    
+
     active_buf_index++;
-    record_index++;
+    /* NOTE: record_index is already incremented in build_record() */
+    records_processed++;
 
     /* Dequeue both packets (advance tail pointers) */
     wm_q_tail = (wm_q_tail + 1) & (WM_Q_LEN - 1);
@@ -244,11 +251,11 @@ void recorder_service(void) {
     if (active_buf_index >= 32) {
       /* Swap buffers */
       flip_buffers();
-      
+
       /* Write the flush buffer to SD card */
       uint32_t bytes_to_write = RECORD_BUFFER_SIZE;
       uint32_t bytes_written = 0;
-      
+
       while (bytes_written < bytes_to_write) {
         UINT bw;
         FRESULT res = f_write(&log_fil, flush_buffer + bytes_written, bytes_to_write - bytes_written, &bw);
@@ -258,8 +265,12 @@ void recorder_service(void) {
         }
         bytes_written += bw;
       }
-      
+
       flush_pending = false;
+
+      /* After SD write, exit this service call to allow main loop to service shell/tasker.
+       * Next call to recorder_service() will continue draining queues if needed. */
+      break;
     }
   }
 }
