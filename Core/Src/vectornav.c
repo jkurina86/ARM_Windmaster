@@ -30,7 +30,6 @@ uint16_t dma_old_pos_imu = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void send_command(const char* cmd);
-static bool parse_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* packet);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -114,7 +113,7 @@ bool vn_drain_and_queue(void) {
 
   bool rx_any = false;
   uint16_t iterations = 0;
-  const uint16_t MAX_ITERATIONS = 200; // Prevent ISR from running too long
+  const uint16_t MAX_ITERATIONS = 200;
 
   while (avail >= PACKET_SIZE && iterations < MAX_ITERATIONS) {
     iterations++;

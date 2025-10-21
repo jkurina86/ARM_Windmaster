@@ -9,7 +9,6 @@
 #include "tasker.h"
 #include "shell.h"
 #include "main.h"
-#include "task_rtc.h"
 
 /* Private types -------------------------------------------------------------*/
 
@@ -24,7 +23,7 @@ typedef struct {
 /* Private variables ---------------------------------------------------------*/
 
 /* Array of task control blocks indexed by task type, this gets populated during init. */
-static volatile task_t tasks[TASK_MAX];
+static task_t tasks[TASK_MAX];
 
 /**
  * @brief Task dispatch table: Maps each task type to its handler and auto-clear behavior.

@@ -6,6 +6,7 @@
   ******************************************************************************
   * Portions copyright (C) 2014, ChaN, all rights reserved.
   * Portions copyright (C) 2017, kiwih, all rights reserved.
+  * Portions Modified 2025, Joseph Kurina. jkurina86@proton.me
   *
   * This software is a free software and there is NO WARRANTY.
   * No restriction on use. You can use, modify and redistribute it for
@@ -147,20 +148,22 @@ void rcvr_spi_multi (
 	UINT btr		/* Number of bytes to receive (even number) */
 )
 {
+	/* OLD DRIVER CODE - BLOCKING HAL TRANSFER */
 	/*
 	for(UINT i=0; i<btr; i++) {
 		*(buff+i) = xchg_spi(0xFF);
 	}
 	*/
+
 	/* BEGIN SPI DMA CODE */
-	/* btr is a multiple of 512 in our use; run one DMA and wait */
+	/* btr is a multiple of 512 - run one DMA transfer and wait */
     spi_rx_done = false;
     if (HAL_SPI_Receive_DMA(&SD_SPI_HANDLE, buff, btr) != HAL_OK) {
         /* Fallback: blocking receive (shouldn’t trigger in steady state) */
         //HAL_SPI_Receive(&SD_SPI_HANDLE, buff, btr, HAL_MAX_DELAY);
         return;
     }
-    /* Wait up to 1s for pathological cards; tune to your liking */
+    /* Wait up to 1 second - extreme case for a very slow SD card */
     if (!wait_flag(&spi_rx_done, 1000)) {
         /* Optional: add error handling; fall back to blocking */
     }
@@ -176,17 +179,20 @@ void xmit_spi_multi (
 	UINT btx			/* Number of bytes to send (even number) */
 )
 {
+	/* OLD DRIVER CODE - BLOCKING HAL TRANSFER */
 	/*
 	HAL_SPI_Transmit(&SD_SPI_HANDLE, buff, btx, HAL_MAX_DELAY);
 	*/
+
 	/* BEGIN SPI DMA CODE */
 	spi_tx_done = false;
     if (HAL_SPI_Transmit_DMA(&SD_SPI_HANDLE, (uint8_t*)buff, btx) != HAL_OK) {
         //HAL_SPI_Transmit(&SD_SPI_HANDLE, (uint8_t*)buff, btx, HAL_MAX_DELAY);
         return;
     }
+	/* Wait up to 1 second - extreme case for a very slow SD card */
     if (!wait_flag(&spi_tx_done, 1000)) {
-        /* Optional: add error handling; fall back to blocking */
+        /* Handle error */
     }
 	/* END SPI DMA CODE */
 }

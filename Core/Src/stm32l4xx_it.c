@@ -404,13 +404,6 @@ void UART4_IRQHandler(void)
       usart_clear_errors(UART4, &uart4_err_ore, &uart4_err_fe, &uart4_err_ne);
   }
 
-  /* Check for IDLE line detection - just clear it, don't process in ISR */
-  if (isr & USART_ISR_IDLE) {
-    usart_clear_idle(UART4);
-    uart4_idle_isr_count++;
-    /* NOTE: Packet processing moved to main loop via recorder_service() */
-  }
-
   /* USER CODE END UART4_IRQn 0 */
   /* USER CODE BEGIN UART4_IRQn 1 */
 
@@ -429,13 +422,6 @@ void UART5_IRQHandler(void)
   if (isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE)) {
       /* Clear error flags */
       usart_clear_errors(UART5, &uart5_err_ore, &uart5_err_fe, &uart5_err_ne);
-  }
-
-  /* Check for IDLE line detection - just clear it, don't process in ISR */
-  if (isr & USART_ISR_IDLE) {
-    usart_clear_idle(UART5);
-    uart5_idle_isr_count++;
-    /* NOTE: Packet processing moved to main loop via recorder_service() */
   }
 
   /* USER CODE END UART5_IRQn 0 */

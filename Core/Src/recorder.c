@@ -15,20 +15,20 @@
 /* Definitions ------------------------------------------------------------------*/
 #define WM_LEN 23
 #define VN_LEN 86
-#define WM_Q_LEN 64
-#define VN_Q_LEN 64
-#define RECORD_BUFFER_SIZE 4096  // 4 KB buffer size
-#define MAX_RECORDS_PER_SERVICE 32  // Process max 1 buffer per service call for cooperative multitasking
+#define WM_Q_LEN 32
+#define VN_Q_LEN 32
+#define RECORD_BUFFER_SIZE 4096  
+#define MAX_RECORDS_PER_SERVICE 32  /* 32*128 = 4KB, Only one full buffer will be processed at a time at most. */
 
 /* Queue Structures */
 static WM_QueueEntry_t wm_queue[WM_Q_LEN];
 static VN_QueueEntry_t vn_queue[VN_Q_LEN];
 
 /* Queue indices */
-static volatile uint8_t wm_q_head = 0;
-static volatile uint8_t wm_q_tail = 0;
-static volatile uint8_t vn_q_head = 0;
-static volatile uint8_t vn_q_tail = 0;
+static uint8_t wm_q_head = 0;
+static uint8_t wm_q_tail = 0;
+static uint8_t vn_q_head = 0;
+static uint8_t vn_q_tail = 0;
 
 uint8_t record_buffer_a[RECORD_BUFFER_SIZE]__attribute__((section(".record_buffer_a")));
 uint8_t record_buffer_b[RECORD_BUFFER_SIZE]__attribute__((section(".record_buffer_b")));
@@ -89,7 +89,7 @@ void recorder_start(void) {
   /* Generate log filename */
   snprintf(filename, sizeof(filename), "log.bin");
 
-  /* Open log file for writing (create if doesn't exist) */
+  /* Open log file for writing (create it if it doesn't exist) */
   FS_Result_t fs_res = filesystem_open_log(&log_fil, filename);
 
   if (fs_res != FS_OK) {
@@ -101,13 +101,6 @@ void recorder_start(void) {
       return;
     }
   }
-
-  /* Clear any pending IDLE flags */
-  LL_USART_ClearFlag_IDLE(UART4);
-  LL_USART_ClearFlag_IDLE(UART5);
-
-  /* NOTE: IDLE interrupts NOT enabled - using polling in recorder_service() instead
-   * This prevents ISR/main loop reentrance conflicts on UART/DMA registers */
 
   /* Start the sensors */
   wm_start();
@@ -130,7 +123,7 @@ void recorder_stop(void) {
       UINT bw;
       FRESULT res = f_write(&log_fil, active_buffer + bytes_written, bytes_to_write - bytes_written, &bw);
       if (res != FR_OK) {
-        // Handle write error (optional)
+        /* Handle error */
         break;
       }
       bytes_written += bw;
@@ -144,31 +137,26 @@ void recorder_stop(void) {
   /* Close the log file */
   f_close(&log_fil);
 
-  /* NOTE: IDLE interrupts were never enabled, nothing to disable */
-
 }
 
 /* @brief Queue a WindMaster packet for recording
  * @param pkt: Pointer to WM_Packet_t structure with WindMaster data
  * @param t_us: Timestamp in microseconds
  * @retval None
- * @note Called from UART ISR - uses critical section for queue head update
   */
 void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us)
 {
   uint8_t next = (wm_q_head + 1) & (WM_Q_LEN - 1);
   if (next == wm_q_tail) {
-    wm_drops++; // Track queue overflow
-    return; // queue full
+    /* Queue full, drop packet and log */
+    wm_drops++;
+    return;
   }
 
   wm_queue[wm_q_head].wm_packet = *pkt;
   wm_queue[wm_q_head].timestamp_us = t_us;
 
-  /* Update head atomically - prevent main loop from reading inconsistent state */
-  __disable_irq();
   wm_q_head = next;
-  __enable_irq();
 
   /* Track max queue depth */
   uint8_t count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
@@ -181,7 +169,6 @@ void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us)
  * @param pkt: Pointer to VN_Packet_t structure with IMU data
  * @param t_us: Timestamp in microseconds
  * @retval None
- * @note Called from UART ISR - uses critical section for queue head update
   */
 void recorder_queue_vn(const VN_Packet_t *pkt, uint64_t t_us)
 {
@@ -194,10 +181,7 @@ void recorder_queue_vn(const VN_Packet_t *pkt, uint64_t t_us)
   vn_queue[vn_q_head].vn_packet = *pkt;
   vn_queue[vn_q_head].timestamp_us = t_us;
 
-  /* Update head atomically - prevent main loop from reading inconsistent state */
-  __disable_irq();
   vn_q_head = next;
-  __enable_irq();
 
   /* Track max queue depth */
   uint8_t count = get_queue_count(vn_q_head, vn_q_tail, VN_Q_LEN);
@@ -211,14 +195,12 @@ void recorder_service(void) {
     return;
   }
 
-  /* Drain DMA buffers and queue packets (moved from ISR to main loop) */
+  /* Drain DMA buffers and queue packets */
   wm_drain_and_queue();
   vn_drain_and_queue();
 
-  /* Process up to MAX_RECORDS_PER_SERVICE pairs per call to ensure
+  /* Process up to MAX_RECORDS_PER_SERVICE pairs and then yield to allow
    * cooperative multitasking with shell and tasker in main loop.
-   * With 64-entry queues and 20Hz sensors, this provides ample headroom
-   * while guaranteeing return to main loop within ~100ms.
    */
   uint8_t records_processed = 0;
 
@@ -232,7 +214,10 @@ void recorder_service(void) {
     /* Pair the WindMaster and VectorNav data */
     Recorder_Data_t record = build_record(&vn->vn_packet, &wm->wm_packet);
 
-    /* TEMPORARY: for testing, average the timestamps and put it in the timegps field */
+    /* TEMPORARY: for testing, average the timestamps and put it in the timegps field.
+     * This is slow because it involves 64-bit values. In production, the timestamp will
+     * be provided by the VectorNav. 
+     */
     record.timegps = (wm->timestamp_us + vn->timestamp_us) / 2;
 
     /* Copy the record into the active buffer at the current position */
@@ -240,7 +225,6 @@ void recorder_service(void) {
     memcpy(dest, &record, sizeof(Recorder_Data_t));
 
     active_buf_index++;
-    /* NOTE: record_index is already incremented in build_record() */
     records_processed++;
 
     /* Dequeue both packets (advance tail pointers) */
@@ -351,7 +335,7 @@ recorder_stats_t recorder_get_stats(void)
   stats.recording = recording;
   stats.records_written = record_index;
   stats.active_buffer_records = active_buf_index;
-  stats.active_buffer_capacity = 32; // 4KB / 128 bytes
+  stats.active_buffer_capacity = 32; /* 4096 / 128 bytes */
   
   stats.wm_queue_count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
   stats.wm_queue_capacity = WM_Q_LEN;

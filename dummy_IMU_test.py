@@ -91,7 +91,7 @@ def build_packet(packet_number):
     gyro_y = 0.05 * math.cos(t * 0.6)
     gyro_z = 0.02 * math.sin(t * 0.5)
     
-    # Position (example: somewhere in the middle of the US)
+    # Position
     latitude = 39.8283 + 0.0001 * math.sin(t * 0.1)
     longitude = -98.5795 + 0.0001 * math.cos(t * 0.1)
     altitude = 500.0 + 10.0 * math.sin(t * 0.2)
@@ -104,7 +104,7 @@ def build_packet(packet_number):
     # Acceleration (m/s^2)
     acc_x = 0.05 * math.sin(t * 1.0)
     acc_y = 0.03 * math.cos(t * 1.2)
-    acc_z = 9.81 + 0.02 * math.sin(t * 0.8)  # Gravity + small variation
+    acc_z = 9.81 + 0.02 * math.sin(t * 0.8) 
     
     # Pack the packet (little-endian except checksum)
     # Format: B=uint8, H=uint16, Q=uint64, f=float, d=double

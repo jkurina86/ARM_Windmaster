@@ -57,9 +57,7 @@ void handle_rec_start(const task_data_t *task_data)
     /* Clear task flag first */
     tasker_clear_task_pending(TASK_REC_START);
 
-    /* Print messages BEFORE starting recorder to avoid UART interrupt conflicts */
     shell_print("Starting recorder...\r\n");
-    shell_print("Recorder started! Use rec-stop to stop recording.\r\n");
     shell_print(SHELL_PROMPT);
 
     /* Now start recorder - sensors will begin transmitting immediately */
@@ -94,7 +92,7 @@ void handle_rec_stats(const task_data_t *task_data)
     /* Clear task flag first */
     tasker_clear_task_pending(TASK_REC_STATS);
     
-    // Get statistics from recorder
+    /* Get statistics from recorder */
     recorder_stats_t stats = recorder_get_stats();
     
     shell_print("\r\n");

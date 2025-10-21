@@ -2,7 +2,8 @@
   ******************************************************************************
   * @file    systime.c
   * @brief   System time functions
-  * @note    Timekeeping
+  * @note    Timekeeping using RTC and TIM2 with PPS synchronization
+  * @note    Software implementation of an NTP-like PLL for microsecond accuracy
   ******************************************************************************
   */
 #include "systime.h"
@@ -29,6 +30,7 @@ static volatile uint64_t g_set_epoch = 0;                           /* Epoch tim
   * @param tps Ticks per second
   * @retval None
   * @note Updates g_scale_q32 and avoids FPU in the ISR with Q32 representation
+  * @note This function involves 64-bit arithmetic, which is not ideal.
 */
 static inline void update_scale(uint64_t tps) {
     if (!tps) tps = 1000000ULL; /* Avoid divide-by-zero. Default to nominal case. */
@@ -87,6 +89,7 @@ void systime_init(const RTC_DateTime_t* initial_dt) {
   * @param new_epoch New epoch time in seconds since 2000-01-01
   * @retval None
   * @note Time will be set on next PPS event
+  * @note This function involves 64-bit arithmetic, which is not ideal.
 */
 void systime_request_update(uint64_t new_epoch) {
     g_set_epoch = new_epoch;
@@ -98,6 +101,7 @@ void systime_request_update(uint64_t new_epoch) {
   * @retval None
   * @note Updates epoch time, phase, and ticks per second estimate
   * @note This function avoids floating point and division in the ISR
+  * @note This function involves 64-bit arithmetic, which is not ideal.
 */
 void systime_pps_event(void) {
     /* Sample the TIM2 counter */
@@ -168,6 +172,7 @@ void systime_pps_event(void) {
   * @retval Current time in microseconds (Epoch * 1,000,000 + sub-second microseconds)
   * @note Combines RTC epoch time with TIM2 counter and phase adjustment
   * @note Safe to call from ISR - preserves interrupt state
+  * @note This function involves 64-bit arithmetic, which is not ideal.
 */
 uint64_t time_us_now(void) {
     /* Save and disable interrupts atomically - safe to call from ISR */
@@ -222,6 +227,7 @@ uint64_t time_us_now(void) {
   * @retval Current time in seconds
   * @note Direct calculation avoiding microsecond conversion issues
   * @note Safe to call from ISR - preserves interrupt state
+  * @note This function involves 64-bit arithmetic, which is not ideal.
 */
 uint64_t time_s_now(void) {
     /* Save and disable interrupts atomically - safe to call from ISR */
@@ -240,7 +246,7 @@ uint64_t time_s_now(void) {
     /* Ticks since last PPS */
     int32_t delta = (int32_t)(counter - pps_t2);
 
-    /* Apply phase correction */
+    /* Apply phase correction - THIS INVOLVES 64-BIT ARITHMETIC IN THE ISR, NOT GOOD! */
     int64_t adjusted_delta = (int64_t)delta - phase;
 
     /* Check if we need to borrow from the next second */

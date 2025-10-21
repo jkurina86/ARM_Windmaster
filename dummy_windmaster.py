@@ -80,23 +80,22 @@ def build_packet(packet_number):
     # Status word (0 = OK, non-zero = errors)
     status = 0x0000
     
-    # Wind speeds (units of 0.01 m/s, typical range: -2000 to +2000 = -20 to +20 m/s)
+    # Wind speeds (units of 0.01 m/s)
     U_axis_speed = int(500 + 300 * math.sin(t * 0.5))
     V_axis_speed = int(200 + 150 * math.cos(t * 0.4))
     W_axis_speed = int(50 + 30 * math.sin(t * 0.3))
     
-    # Speed of Sound (units of 0.01 m/s, typical: ~3400 = 34.00 m/s at 15°C)
+    # Speed of Sound (units of 0.01 m/s)
     # Note: This is scaled to fit int16_t range
     SoS = int(3400 + 100 * math.sin(t * 0.1))
     
-    # Analog inputs (arbitrary units, often unused)
+    # Analog inputs (arbitrary)
     A1 = int(1000 + 100 * math.sin(t * 0.6))
     A2 = int(2000 + 200 * math.cos(t * 0.7))
     A3 = int(1500 + 150 * math.sin(t * 0.8))
     A4 = int(2500 + 250 * math.cos(t * 0.9))
     
     # Temperature from PRT (0.01°C units)
-    # Example: 1500 = 15.00°C
     Temp = int(1500 + 50 * math.sin(t * 0.05))
     
     # Pack the packet without checksum (little-endian)
