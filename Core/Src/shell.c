@@ -50,6 +50,7 @@ const shell_command_t shell_commands[] = {
     {"reset", "Reset the system", cmd_reset},
     {"version", "Show firmware version", cmd_version},
     {"hello", "Send hello message to UART (1-5)", cmd_hello},
+    {"snooze", "Enter low-power sleep mode for specified seconds", cmd_snooze},
     
     /* RTC Commands */
     {"rtc-settime", "Set RTC date/time (YYYY MM DD HH MM SS)", cmd_rtc_settime},
@@ -330,6 +331,24 @@ void cmd_hello(int argc, char **argv)
     }
 
     schedule_hello((uint8_t)uart_num);
+}
+
+/**
+  * @brief Snooze command to enter low-power sleep mode
+  * @param argc: Argument count
+  * @param argv: Arguments (seconds)
+  * @retval None
+  */
+void cmd_snooze(int argc, char **argv)
+{
+    uint16_t seconds = 0; /* Default to invalid value */
+
+    if (argc == 2) {
+        seconds = (uint16_t)atoi(argv[1]);
+    }
+
+    /* Schedule snooze task */
+    schedule_snooze(seconds);
 }
 
 /* RTC Commands -----------------------------------------------*/

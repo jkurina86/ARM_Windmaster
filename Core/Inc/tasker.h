@@ -34,6 +34,7 @@ typedef enum {
     TASK_HELP,
     TASK_CLEAR,
     TASK_STATUS,
+    TASK_SNOOZE,
     
     /* Filesystem Tasks */
     TASK_FS_MOUNT,
@@ -93,6 +94,11 @@ typedef struct task_data_t {
             uint8_t weekdays;       /* 1-7 (1=Sunday) */
             uint8_t argc;           /* Argument count for validation */
         } rtc_settime;
+
+        /* For snooze task */
+        struct {
+            uint16_t seconds;
+        } snooze;
     };
 } task_data_t;
 

@@ -21,6 +21,7 @@
 #include "adc.h"
 #include "dma.h"
 #include "fatfs.h"
+#include "rtc.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
@@ -146,6 +147,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
   shell_printf("\r\nSystem initializing...\r\n");
@@ -214,15 +216,15 @@ int main(void)
   /* Initialize the shell */
   shell_init();
 
-  /* Set PB0 GPIO high - ENABLE pin for the USART3 transceiver */
-  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+  /* Set PB0 GPIO high - ENABLE pin for the USART3 RS232 transceiver */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
 
-  /* Set PB4 GPIO high and PB5 GPIO low to enable the UART5 transceiver */
+  /* Set PB4 GPIO high and PB5 GPIO low to enable the UART5 RS232 transceiver */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
 
-  /* Set PB1 GPIO high - ENABLE pin for USART2 transceiver */
-  //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+  /* Set PB1 GPIO high - ENABLE pin for USART2 RS232 transceiver */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
 
   /* Set PB2_GPIO high to supply power to the SD card */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
@@ -277,11 +279,17 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
+  /** Configure LSE Drive Capability
+  */
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
+
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_LSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 1;
@@ -307,6 +315,10 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+
+  /** Enables the Clock Security System
+  */
+  HAL_RCCEx_EnableLSECSS();
 }
 
 /* USER CODE BEGIN 4 */
@@ -343,6 +355,106 @@ void rtc_init(void) {
 
   /* Enable TIM3 counter to start capturing RTC CLKOUT */
   LL_TIM_EnableCounter(TIM3);
+}
+
+void snooze (uint16_t seconds) {
+  /* Stop recording if active */
+  recorder_stats_t stats = recorder_get_stats();
+  if (stats.recording) {
+    recorder_stop();
+  }
+
+  /* Disable the TIM2 1Mhz free-running counter */
+  LL_TIM_DisableCounter(TIM2);
+  /* Disable the TIM3 counter */
+  LL_TIM_DisableCounter(TIM3);
+  /* Disable TIM4 */
+  LL_TIM_DisableCounter(TIM4);
+
+  /* Turn off the SPI Bus */
+  LL_SPI_Disable(SPI1);
+  LL_SPI_Disable(SPI2);
+
+  /* Turn off SD Card Power */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET);
+
+  /* Turn off UARTs */
+  LL_USART_Disable(USART1);
+  LL_USART_Disable(USART2);
+  LL_USART_Disable(USART3);
+  LL_USART_Disable(UART4);
+  LL_USART_Disable(UART5);
+
+  /* Turn off the RS232 transceivers */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET); // USART3
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // USART2
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET); // UART5
+  /* UART4 RS232 Transceiver is Always-On */
+
+  /* Configure RTC Wakeup Timer using HAL */
+  /* Use RTC wakeup timer with RTCCLK/16 = LSE/16 = 32768/16 = 2048 Hz */
+  /* For N seconds wakeup, counter = (N * 2048) - 1 */
+  /* LSE provides precise 32.768 kHz crystal accuracy */
+
+  uint32_t wakeup_counter = (seconds * 2048) - 1;
+
+  /* Set wakeup timer with interrupt mode */
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, wakeup_counter, RTC_WAKEUPCLOCK_RTCCLK_DIV16) != HAL_OK)
+  {
+    /* Timer configuration failed - should not happen */
+    Error_Handler();
+  }
+
+  /* Enter Stop Mode 2 for lowest power consumption */
+  /* Stop Mode 2: All clocks stopped, SRAM and registers retained */
+  /* RTC continues running and can wake up the system */
+  HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
+
+  /* CPU will resume here after wakeup interrupt */
+  /* System clock needs to be reconfigured (done in wakeup() function) */
+}
+
+void wakeup (void) {
+  /* After waking from Stop Mode 2, system clock is MSI (4 MHz default) */
+  /* Need to reconfigure system clock to PLL */
+  SystemClock_Config();
+
+  /* Disable RTC wakeup timer using HAL */
+  HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
+
+  /* Re-enable the TIM2 1Mhz free-running counter */
+  LL_TIM_EnableCounter(TIM2);
+
+  /* Re-enable the TIM3 counter for PPS synchronization */
+  LL_TIM_EnableCounter(TIM3);
+
+  /* Turn on SD Card Power and wait for stabilization */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
+  HAL_Delay(10);
+
+  /* Turn on the SPI Bus */
+  LL_SPI_Enable(SPI1);
+  LL_SPI_Enable(SPI2);
+
+  /* Turn on the RS232 transceivers */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); // USART3
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET); // USART2
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET); // UART5
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET); // UART5 second control
+  /* UART4 RS232 Transceiver is Always-On */
+
+  /* Turn on UARTs */
+  LL_USART_Enable(USART1);
+  LL_USART_Enable(USART2);
+  LL_USART_Enable(USART3);
+  LL_USART_Enable(UART4);
+  LL_USART_Enable(UART5);
+
+  /* Re-initialize UART interrupts for shell */
+  init_uart_interrupts();
+
+  /* Small delay to allow peripherals to stabilize */
+  HAL_Delay(50);
 }
 
 /**

@@ -26,6 +26,7 @@ void handle_version(const task_data_t *task_data);
 void handle_help(const task_data_t *task_data);
 void handle_clear(const task_data_t *task_data);
 void handle_status(const task_data_t *task_data);
+void handle_snooze(const task_data_t *task_data);
 
 /* Scheduling function prototypes ---------------------------------------------*/
 void schedule_reset(uint32_t delay_ms);
@@ -34,6 +35,7 @@ void schedule_version(void);
 void schedule_help(void);
 void schedule_clear(void);
 void schedule_status(void);
+void schedule_snooze(uint16_t seconds);
 
 #ifdef __cplusplus
 }

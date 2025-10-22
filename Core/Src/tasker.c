@@ -42,7 +42,8 @@ static const task_descriptor_t task_table[TASK_MAX] = {
     [TASK_HELP] = { handle_help, 1 },
     [TASK_CLEAR] = { handle_clear, 1 },
     [TASK_STATUS] = { handle_status, 1 },
-    
+    [TASK_SNOOZE] = { handle_snooze, 1 },
+
     /* Filesystem Tasks */
     [TASK_FS_MOUNT] = { handle_fs_mount, 1 },
     [TASK_FS_UNMOUNT] = { handle_fs_unmount, 1 },

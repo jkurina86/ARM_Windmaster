@@ -11,11 +11,13 @@
 #include "shell.h"
 #include "usart.h"
 #include "main.h"
+#include "rtc.h"
 #include "stm32l4xx_ll_usart.h"
 #include <string.h>
 
 /* External variables --------------------------------------------------------*/
 extern UART_HandleTypeDef huart1;
+extern RTC_HandleTypeDef hrtc;
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -221,6 +223,29 @@ void handle_status(const task_data_t *task_data)
     shell_print(SHELL_PROMPT);
 }
 
+/**
+ * @brief Handle snooze task
+ * @param task_data: Pointer to task data containing snooze duration
+ * @retval None
+ */
+void handle_snooze(const task_data_t *task_data)
+{
+    /* Clear task flag first */
+    tasker_clear_task_pending(TASK_SNOOZE);
+    
+    uint16_t seconds = task_data->snooze.seconds;
+    
+    shell_printf("Entering low-power sleep mode for %u seconds...\r\n", seconds);
+    
+    snooze(seconds);
+    
+    /* Upon wakeup, re-initialize the system */
+    wakeup();
+    
+    shell_print("Woke up from snooze mode.\r\n");
+    shell_print(SHELL_PROMPT);
+}
+
 /* Scheduling Functions ------------------------------------------------------*/
 
 /**
@@ -285,4 +310,16 @@ void schedule_clear(void)
 void schedule_status(void)
 {
     tasker_schedule_task(TASK_STATUS, NULL);
+}
+
+/**
+ * @brief Schedule a snooze task
+ * @param seconds: Number of seconds to snooze
+ * @retval None
+ */
+void schedule_snooze(uint16_t seconds)
+{
+    task_data_t task_data;
+    task_data.snooze.seconds = seconds;
+    tasker_schedule_task(TASK_SNOOZE, &task_data);
 }
