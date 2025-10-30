@@ -59,6 +59,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/task_gen.c
     Core/Src/task_rtc.c
     Core/Src/task_rec.c
+    Core/Src/task_vn.c
+    Core/Src/vn_cmd.c
 )
 
 # Add include paths

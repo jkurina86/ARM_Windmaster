@@ -68,6 +68,9 @@ static const task_descriptor_t task_table[TASK_MAX] = {
     [TASK_REC_START] = { handle_rec_start, 1 },
     [TASK_REC_STOP] = { handle_rec_stop, 1 },
     [TASK_REC_STATS] = { handle_rec_stats, 1 },
+
+    /* VectorNav Tasks */
+    [TASK_VN_PASSTHROUGH] = { handle_vn_passthrough, 1 },
 };
 
 /* Private function prototypes -----------------------------------------------*/

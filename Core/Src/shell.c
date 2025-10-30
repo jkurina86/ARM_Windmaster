@@ -12,6 +12,7 @@
 #include "usart.h"
 #include "filesystem.h"
 #include "task_rtc.h"
+#include "task_vn.h"
 
 /* Private variables ---------------------------------------------------------*/
 static char shell_buffer[SHELL_MAX_CMD_LEN];
@@ -76,6 +77,9 @@ const shell_command_t shell_commands[] = {
     {"rec-start", "Start data recording", cmd_rec_start},
     {"rec-stop", "Stop data recording", cmd_rec_stop},
     {"rec-stats", "Show recorder statistics", cmd_rec_stats},
+
+    /* VectorNav Commands */
+    {"vectornav", "Send command to VectorNav sensor", cmd_vectornav},
 
     {NULL, NULL, NULL} /* End marker */
 };
@@ -661,6 +665,28 @@ void cmd_rec_stats(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
     schedule_rec_stats();
+}
+
+/* VectorNav Commands -----------------------------------------------*/
+
+/**
+  * @brief Send command to VectorNav sensor
+  * @param argc: Argument count
+  * @param argv: Arguments (command string)
+  * @retval None
+  * @note Usage: vectornav <command>
+  *       Example: vectornav $VNRRG,0*XX
+  */
+void cmd_vectornav(int argc, char **argv)
+{
+    if (argc < 2) {
+        shell_print("Usage: vectornav <command>\r\n");
+        shell_print("Example: vectornav $VNRRG,0*XX\r\n");
+        return;
+    }
+
+    /* Get the command string from argv[1] */
+    schedule_vn_passthrough(argv[1]);
 }
 
 /* UART Interrupt Callbacks -------------------------------------------------*/
