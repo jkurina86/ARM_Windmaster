@@ -40,25 +40,7 @@ static void send_command(const char* cmd);
   *         hardware peripherals and preparing the DMA buffer for data reception.
   */
 void vn_init(void) {
-  /* Stop any ongoing async output */
-  send_command("$VNASY,0*XX\r\n");
-
-  /* Flush the echo response */
-  while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-    (void)LL_USART_ReceiveData8(UART5);
-  }
-
-}
-
-/** @brief  Start the vectornav
-  * @param  None
-  * @retval None
-  * @note   Sends the Async Output Enable command to the vectornav.
-  *         Quickly drains the echo response, and then sets up the DMA for reception. 
-  */
-void vn_start(void) {
-  if (imu_running == false) {
-    /* Configure UART5 for DMA RX */
+    /* Configure UART5 for DMA RX (don't disable UART to preserve TX functionality) */
     LL_USART_EnableDMAReq_RX(UART5);
 
     /* Configure DMA addresses */
@@ -68,22 +50,29 @@ void vn_start(void) {
                           LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 
     LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_2, DMA_BUFFER_SIZE);
-    
-    /* Send Async Output Enable command */
-    send_command("$VNASY,1*XX\r\n");
 
-    /* Flush the echo response */
-    while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-      (void)LL_USART_ReceiveData8(UART5);
-    }
+    /* Enable DMA interrupts */
+    LL_DMA_EnableIT_TC(DMA2, LL_DMA_CHANNEL_2);
+    LL_DMA_EnableIT_HT(DMA2, LL_DMA_CHANNEL_2);
 
     /* Start DMA reception */
     LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_2);
 
     /* Initialize latest packet */
     memset(&latest_packet, 0, sizeof(VN_Packet_t));
-    imu_running = true;
-  }
+}
+
+/** @brief  Start the vectornav
+  * @param  None
+  * @retval None
+  * @note   Sends the START command to the vectornav.
+  */
+void vn_start(void) {
+    if (imu_running == false) {
+        send_command("\n"); /* Wake up the Python script for dummy sensor. */
+        send_command("START\n");
+        imu_running = true;
+    }
 }
 
 /** @brief  Stop the dummy IMU
@@ -93,17 +82,8 @@ void vn_start(void) {
   */
 void vn_stop(void) {
   if (imu_running == true) {
-    /* Disable DMA reception */
-    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_2);
-    
-    /* Send Async Output Disable command */
-    send_command("$VNASY,0*XX\r\n");
-
-    /* Flush the echo response */
-    while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-      (void)LL_USART_ReceiveData8(UART5);
-    }
-
+    send_command("\n");
+    send_command("STOP\n");
     imu_running = false;
   }
 }
