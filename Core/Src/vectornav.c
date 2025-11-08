@@ -38,8 +38,25 @@ static void send_command(const char* cmd);
   * @retval None
   * @note   Sets up the UART and DMA for receiving data, configuring
   *         hardware peripherals and preparing the DMA buffer for data reception.
+  *         Ensures async mode is disabled before starting DMA to avoid buffer corruption.
   */
 void vn_init(void) {
+    /* Flush UART RX buffer before sending command (clear any pending data) */
+    while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+        (void)LL_USART_ReceiveData8(UART5);
+    }
+
+    /* Disable async mode in case it was left on from previous power cycle */
+    send_command("$VNWRG,75,0,20,00*F819\r\n");
+
+    /* Flush the ASCII echo response from VectorNav (e.g., "$VNWRG,75,0,20,00*F819\r\n") */
+    /* Wait briefly for response to arrive (VN-300 responds quickly) */
+    for (volatile uint32_t i = 0; i < 100000; i++); /* ~10ms delay at 80MHz */
+
+    while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+        (void)LL_USART_ReceiveData8(UART5);
+    }
+
     /* Configure UART5 for DMA RX (don't disable UART to preserve TX functionality) */
     LL_USART_EnableDMAReq_RX(UART5);
 
