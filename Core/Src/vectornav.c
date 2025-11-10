@@ -13,6 +13,7 @@
 #include "stm32l4xx_ll_dma.h"
 #include "stm32l4xx_ll_gpio.h"
 #include "stm32l4xx_ll_bus.h"
+#include "stm32l4xx_hal.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -47,12 +48,12 @@ void vn_init(void) {
     }
 
     /* Disable async mode in case it was left on from previous power cycle */
-    send_command("$VNWRG,75,0,20,00*F819\r\n");
+    send_command("$VNWRG,75,0,20,00*F819\n");
 
-    /* Flush the ASCII echo response from VectorNav (e.g., "$VNWRG,75,0,20,00*F819\r\n") */
     /* Wait briefly for response to arrive (VN-300 responds quickly) */
-    for (volatile uint32_t i = 0; i < 100000; i++); /* ~10ms delay at 80MHz */
+    HAL_Delay(10);
 
+    /* Flush the ASCII echo response from VectorNav */
     while (LL_USART_IsActiveFlag_RXNE(UART5)) {
         (void)LL_USART_ReceiveData8(UART5);
     }
@@ -82,25 +83,75 @@ void vn_init(void) {
 /** @brief  Start the vectornav
   * @param  None
   * @retval None
-  * @note   Sends the START command to the vectornav.
+  * @note   Enables VectorNav async mode for 20Hz binary output.
+  *         Disables DMA during command transmission to prevent ASCII echo from polluting binary data buffer.
   */
 void vn_start(void) {
     if (imu_running == false) {
-        send_command("\n"); /* Wake up the Python script for dummy sensor. */
-        send_command("START\n");
+        /* Disable DMA to prevent ASCII echo from entering the binary data buffer */
+        LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_2);
+
+        /* Flush UART RX buffer before sending command */
+        while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+            (void)LL_USART_ReceiveData8(UART5);
+        }
+
+        /* Enable async mode (20Hz binary output) */
+        send_command("$VNWRG,75,1,20,01,01EA*6441\n");
+
+        /* Wait for response */
+        HAL_Delay(10);
+
+        /* Flush the ASCII echo response */
+        while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+            (void)LL_USART_ReceiveData8(UART5);
+        }
+
+        /* Reset DMA buffer position tracking */
+        dma_old_pos_imu = 0;
+
+        /* Re-enable DMA to capture binary data stream */
+        LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_2, DMA_BUFFER_SIZE);
+        LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_2);
+
         imu_running = true;
     }
 }
 
-/** @brief  Stop the dummy IMU
+/** @brief  Stop the VectorNav
   * @param  None
   * @retval None
-  * @note   Sends the STOP command to the dummy IMU.
+  * @note   Disables VectorNav async mode to stop binary output.
+  *         Disables DMA during command transmission to prevent ASCII echo from polluting binary data buffer.
   */
 void vn_stop(void) {
   if (imu_running == true) {
-    send_command("\n");
-    send_command("STOP\n");
+    /* Disable DMA to prevent ASCII echo from entering the binary data buffer */
+    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_2);
+
+    /* Flush UART RX buffer before sending command */
+    while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+        (void)LL_USART_ReceiveData8(UART5);
+    }
+
+    /* Disable async mode */
+    send_command("$VNWRG,75,0,20,00*F819\n");
+
+    /* Wait for response */
+    HAL_Delay(10);
+
+    /* Flush the ASCII echo response */
+    while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+        (void)LL_USART_ReceiveData8(UART5);
+    }
+
+    /* Reset DMA buffer position tracking */
+    dma_old_pos_imu = 0;
+
+    /* Re-enable DMA (in case we start again later) */
+    LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_2, DMA_BUFFER_SIZE);
+    LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_2);
+
     imu_running = false;
   }
 }
