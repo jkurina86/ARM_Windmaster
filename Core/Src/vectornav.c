@@ -29,6 +29,10 @@ static VN_Packet_t latest_packet = {0};
 uint8_t dma_buffer_imu[DMA_BUFFER_SIZE] __attribute__((section(".dma_buffer_imu")));
 uint16_t dma_old_pos_imu = 0;
 
+/* TX DMA buffer for commands - must be in DMA-accessible RAM */
+static uint8_t vn_tx_buffer[256];
+volatile uint8_t vn_tx_complete = 1;  /* Signal from DMA ISR when TX complete */
+
 /* Private function prototypes -----------------------------------------------*/
 static void send_command(const char* cmd);
 
@@ -40,11 +44,12 @@ static void send_command(const char* cmd);
   * @note   Sets up the UART and DMA for receiving data, configuring
   *         hardware peripherals and preparing the DMA buffer for data reception.
   *         Ensures async mode is disabled before starting DMA to avoid buffer corruption.
+  *         USART3 RX uses DMA1 Channel 3, TX uses DMA1 Channel 2.
   */
 void vn_init(void) {
     /* Flush UART RX buffer before sending command (clear any pending data) */
-    while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-        (void)LL_USART_ReceiveData8(UART5);
+    while (LL_USART_IsActiveFlag_RXNE(USART3)) {
+        (void)LL_USART_ReceiveData8(USART3);
     }
 
     /* Disable async mode in case it was left on from previous power cycle */
@@ -54,30 +59,43 @@ void vn_init(void) {
     HAL_Delay(10);
 
     /* Flush the ASCII echo response from VectorNav */
-    while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-        (void)LL_USART_ReceiveData8(UART5);
+    while (LL_USART_IsActiveFlag_RXNE(USART3)) {
+        (void)LL_USART_ReceiveData8(USART3);
     }
 
-    /* Configure UART5 for DMA RX (don't disable UART to preserve TX functionality) */
-    LL_USART_EnableDMAReq_RX(UART5);
+    /* Configure USART3 for DMA RX and TX */
+    LL_USART_EnableDMAReq_RX(USART3);
+    LL_USART_EnableDMAReq_TX(USART3);
 
-    /* Configure DMA addresses */
-    LL_DMA_ConfigAddresses(DMA2, LL_DMA_CHANNEL_2,
-                          LL_USART_DMA_GetRegAddr(UART5, LL_USART_DMA_REG_DATA_RECEIVE),
+    /* Configure DMA RX addresses (DMA1 Channel 3) */
+    LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3,
+                          LL_USART_DMA_GetRegAddr(USART3, LL_USART_DMA_REG_DATA_RECEIVE),
                           (uint32_t)dma_buffer_imu,
                           LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 
-    LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_2, DMA_BUFFER_SIZE);
+    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, DMA_BUFFER_SIZE);
 
-    /* Enable DMA interrupts */
-    LL_DMA_EnableIT_TC(DMA2, LL_DMA_CHANNEL_2);
-    LL_DMA_EnableIT_HT(DMA2, LL_DMA_CHANNEL_2);
+    /* Enable DMA RX interrupts */
+    LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_3);
+    LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_3);
 
-    /* Start DMA reception */
-    LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_2);
+    /* Start DMA RX reception */
+    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
+
+    /* Configure DMA TX (DMA1 Channel 2) - will be used on-demand by send_command */
+    LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MEMORY_INCREMENT);
+    LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PERIPH_NOINCREMENT);
+    LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MDATAALIGN_BYTE);
+    LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PDATAALIGN_BYTE);
+    LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_2, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+    LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MODE_NORMAL);
+    LL_DMA_SetChannelPriorityLevel(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PRIORITY_MEDIUM);
 
     /* Initialize latest packet */
     memset(&latest_packet, 0, sizeof(VN_Packet_t));
+
+    /* TX complete flag initialized to ready */
+    vn_tx_complete = 1;
 }
 
 /** @brief  Start the vectornav
@@ -89,11 +107,11 @@ void vn_init(void) {
 void vn_start(void) {
     if (imu_running == false) {
         /* Disable DMA to prevent ASCII echo from entering the binary data buffer */
-        LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_2);
+        LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
 
         /* Flush UART RX buffer before sending command */
-        while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-            (void)LL_USART_ReceiveData8(UART5);
+        while (LL_USART_IsActiveFlag_RXNE(USART3)) {
+            (void)LL_USART_ReceiveData8(USART3);
         }
 
         /* Enable async mode (20Hz binary output) */
@@ -103,16 +121,16 @@ void vn_start(void) {
         HAL_Delay(10);
 
         /* Flush the ASCII echo response */
-        while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-            (void)LL_USART_ReceiveData8(UART5);
+        while (LL_USART_IsActiveFlag_RXNE(USART3)) {
+            (void)LL_USART_ReceiveData8(USART3);
         }
 
         /* Reset DMA buffer position tracking */
         dma_old_pos_imu = 0;
 
         /* Re-enable DMA to capture binary data stream */
-        LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_2, DMA_BUFFER_SIZE);
-        LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_2);
+        LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, DMA_BUFFER_SIZE);
+        LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
 
         imu_running = true;
     }
@@ -127,11 +145,11 @@ void vn_start(void) {
 void vn_stop(void) {
   if (imu_running == true) {
     /* Disable DMA to prevent ASCII echo from entering the binary data buffer */
-    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_2);
+    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
 
     /* Flush UART RX buffer before sending command */
-    while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-        (void)LL_USART_ReceiveData8(UART5);
+    while (LL_USART_IsActiveFlag_RXNE(USART3)) {
+        (void)LL_USART_ReceiveData8(USART3);
     }
 
     /* Disable async mode */
@@ -141,16 +159,16 @@ void vn_stop(void) {
     HAL_Delay(10);
 
     /* Flush the ASCII echo response */
-    while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-        (void)LL_USART_ReceiveData8(UART5);
+    while (LL_USART_IsActiveFlag_RXNE(USART3)) {
+        (void)LL_USART_ReceiveData8(USART3);
     }
 
     /* Reset DMA buffer position tracking */
     dma_old_pos_imu = 0;
 
     /* Re-enable DMA (in case we start again later) */
-    LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_2, DMA_BUFFER_SIZE);
-    LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_2);
+    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, DMA_BUFFER_SIZE);
+    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
 
     imu_running = false;
   }
@@ -169,10 +187,9 @@ bool vn_is_running(void) {
   * @retval true if a valid packet was processed, false otherwise
   * @note   Processes the DMA buffer to extract complete VN packets,
   *         updating the latest_packet structure with the most recent valid data.
-  * @note   ISR-safe with iteration limit to prevent blocking
   */
 bool vn_drain_and_queue(void) {
-  const uint16_t WR = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_2)) & (DMA_BUFFER_SIZE - 1));
+  const uint16_t WR = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_3)) & (DMA_BUFFER_SIZE - 1));
   const uint16_t MASK = (uint16_t)(DMA_BUFFER_SIZE - 1);
 
   /* Compute the number of bytes between RD and WR */
@@ -221,26 +238,48 @@ bool vn_drain_and_queue(void) {
 
 /* Private functions ---------------------------------------------------------*/
 
-/** @brief  Send a command to the vectornav
+/** @brief  Send a command to the vectornav using DMA TX
   * @param  cmd: Null-terminated command string to send
   * @retval None
-  * @note   Transmits the command string over UART5 to control the vectornav.
-  * @note   IDLE interrupts are never enabled in polling architecture
-  */
+  * @note   Transmits the command string over USART3 using DMA1 Channel 2.
+  *         Waits for previous TX to complete before starting new transfer.
+  *         Function blocks until DMA transfer initiates (non-blocking transfer itself).
+  */`
 static void send_command(const char* cmd) {
-  while (*cmd) {
-    while (!LL_USART_IsActiveFlag_TXE(UART5));
-    LL_USART_TransmitData8(UART5, *cmd++);
+  /* Wait for previous TX to complete, ensures synchronization */
+  while (!vn_tx_complete);
+
+  /* Copy command to DMA buffer */
+  uint16_t len = 0;
+  while (cmd[len] && len < (sizeof(vn_tx_buffer) - 1)) {
+    vn_tx_buffer[len] = (uint8_t)cmd[len];
+    len++;
   }
 
-  /* Wait for transmission to complete */
-  while (!LL_USART_IsActiveFlag_TC(UART5));
+  if (len == 0) return;  /* Empty command */
 
-  /* Clear any spurious IDLE flag that might have been set during TX */
-  if (LL_USART_IsActiveFlag_IDLE(UART5)) {
-    LL_USART_ClearFlag_IDLE(UART5);
-    (void)UART5->RDR;  // Dummy read to clear flag
-  }
+  /* Mark TX as in-progress */
+  vn_tx_complete = 0;
+
+  /* Disable DMA before reconfiguring */
+  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_2);
+
+  /* Configure DMA addresses and length */
+  LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_2,
+                        (uint32_t)vn_tx_buffer,
+                        LL_USART_DMA_GetRegAddr(USART3, LL_USART_DMA_REG_DATA_TRANSMIT),
+                        LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+
+  LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_2, len);
+
+  /* Clear any pending TC flag before re-enabling */
+  LL_DMA_ClearFlag_TC2(DMA1);
+
+  /* Enable DMA Transfer Complete interrupt to signal completion */
+  LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_2);
+
+  /* Enable DMA channel to start transfer */
+  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_2);
 }
 
 /** @brief  Parse a received VN packet

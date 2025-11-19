@@ -301,6 +301,88 @@ void RTC_WKUP_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles DMA1 channel2 global interrupt.
+  */
+void DMA1_Channel2_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel2_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel2_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Channel2_IRQn 1 */
+
+  /* Handle DMA1 Channel 2 Transfer Complete (VectorNav TX) */
+  extern volatile uint8_t vn_tx_complete;
+  if (LL_DMA_IsActiveFlag_TC2(DMA1)) {
+    LL_DMA_ClearFlag_TC2(DMA1);
+    vn_tx_complete = 1;  /* Signal that VectorNav TX is complete */
+  }
+
+  /* USER CODE END DMA1_Channel2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA1 channel3 global interrupt.
+  */
+void DMA1_Channel3_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel3_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel3_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Channel3_IRQn 1 */
+
+  /* Handle DMA1 Channel 3 Transfer Complete (VectorNav RX) */
+  if (LL_DMA_IsActiveFlag_TC3(DMA1)) {
+    LL_DMA_ClearFlag_TC3(DMA1);
+  }
+  if (LL_DMA_IsActiveFlag_HT3(DMA1)) {
+    LL_DMA_ClearFlag_HT3(DMA1);
+  }
+
+  /* USER CODE END DMA1_Channel3_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA1 channel6 global interrupt.
+  */
+void DMA1_Channel6_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel6_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel6_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Channel6_IRQn 1 */
+
+  /* Handle DMA1 Channel 6 Transfer Complete (WindMaster RX) */
+  if (LL_DMA_IsActiveFlag_TC6(DMA1)) {
+    LL_DMA_ClearFlag_TC6(DMA1);
+  }
+  if (LL_DMA_IsActiveFlag_HT6(DMA1)) {
+    LL_DMA_ClearFlag_HT6(DMA1);
+  }
+
+  /* USER CODE END DMA1_Channel6_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA1 channel7 global interrupt.
+  */
+void DMA1_Channel7_IRQHandler(void)
+{
+  /* USER CODE BEGIN DMA1_Channel7_IRQn 0 */
+
+  /* USER CODE END DMA1_Channel7_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Channel7_IRQn 1 */
+
+  /* Handle DMA1 Channel 7 Transfer Complete (WindMaster TX) */
+  extern volatile uint8_t wm_tx_complete;
+  if (LL_DMA_IsActiveFlag_TC7(DMA1)) {
+    LL_DMA_ClearFlag_TC7(DMA1);
+    wm_tx_complete = 1;  /* Signal that WindMaster TX is complete */
+  }
+
+  /* USER CODE END DMA1_Channel7_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM3 global interrupt.
   */
 void TIM3_IRQHandler(void)

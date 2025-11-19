@@ -155,9 +155,18 @@ int main(void)
   /* Start the free-running 1 MHz timer */
   LL_TIM_EnableCounter(TIM2);
 
-  /* Disable the RXNE interrupts for WM and VN */
+  /* UART Migration: Disable old UART4/5 and enable new USART2/3 for sensors */
+  /* Disable UART4 (old WindMaster) and UART5 (old VectorNav) */
   LL_USART_DisableIT_RXNE(UART4);
   LL_USART_DisableIT_RXNE(UART5);
+
+  /* Disable the old UART interrupts completely */
+  HAL_NVIC_DisableIRQ(UART4_IRQn);
+  HAL_NVIC_DisableIRQ(UART5_IRQn);
+
+  /* Enable USART2 (WindMaster) and USART3 (VectorNav) */
+  /* USART2/3 initialized with MX_USART2_UART_Init() / MX_USART3_UART_Init() */
+  /* DMA RX/TX already configured in those functions */
 
   /* Start the 20 Hz timer and interrupt */
   /*

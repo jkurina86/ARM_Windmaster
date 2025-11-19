@@ -29,6 +29,11 @@ static WM_Packet_t latest_packet = {0};
 uint8_t dma_buffer_wm[DMA_BUFFER_SIZE] __attribute__((section(".dma_buffer_wm")));
 uint16_t dma_old_pos_wm = 0;
 
+/* TX DMA buffer for commands */
+static uint8_t wm_tx_buffer[256];
+/* Signal from DMA ISR when TX complete */
+volatile uint8_t wm_tx_complete = 1;
+
 /* Private function prototypes -----------------------------------------------*/
 static void send_command(const char* cmd);
 
@@ -39,33 +44,47 @@ static void send_command(const char* cmd);
   * @retval None
   * @note   Sets up the UART and DMA for receiving data, configuring
   *         hardware peripherals and preparing the DMA buffer for data reception.
+  *         USART2 RX uses DMA1 Channel 6, TX uses DMA1 Channel 7.
   */
 void wm_init(void) {
   /* Clear any pending flags and data */
-  LL_USART_ClearFlag_TC(UART4);
-  LL_USART_ClearFlag_IDLE(UART4);
-  (void)UART4->RDR;  // Dummy read to clear RX
-  
-  /* Configure UART4 for DMA RX (same as UART5 - don't disable) */
-  LL_USART_EnableDMAReq_RX(UART4);
+  LL_USART_ClearFlag_TC(USART2);
+  LL_USART_ClearFlag_IDLE(USART2);
+  (void)USART2->RDR;  // Dummy read to clear RX
 
-  /* Configure DMA addresses */
-  LL_DMA_ConfigAddresses(DMA2, LL_DMA_CHANNEL_5,
-                        LL_USART_DMA_GetRegAddr(UART4, LL_USART_DMA_REG_DATA_RECEIVE),
+  /* Configure USART2 for DMA RX and TX */
+  LL_USART_EnableDMAReq_RX(USART2);
+  LL_USART_EnableDMAReq_TX(USART2);
+
+  /* Configure DMA RX addresses (DMA1 Channel 6) */
+  LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_6,
+                        LL_USART_DMA_GetRegAddr(USART2, LL_USART_DMA_REG_DATA_RECEIVE),
                         (uint32_t)dma_buffer_wm,
                         LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 
-  LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_5, DMA_BUFFER_SIZE);
+  LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_6, DMA_BUFFER_SIZE);
 
-  /* Enable DMA interrupts */
-  LL_DMA_EnableIT_TC(DMA2, LL_DMA_CHANNEL_5);
-  LL_DMA_EnableIT_HT(DMA2, LL_DMA_CHANNEL_5);
+  /* Enable DMA RX interrupts */
+  LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_6);
+  LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_6);
 
-  /* Start DMA reception */
-  LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_5);
+  /* Start DMA RX reception */
+  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_6);
+
+  /* Configure DMA TX (DMA1 Channel 7) - will be used on-demand by send_command */
+  LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_CHANNEL_7, LL_DMA_MEMORY_INCREMENT);
+  LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_CHANNEL_7, LL_DMA_PERIPH_NOINCREMENT);
+  LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_7, LL_DMA_MDATAALIGN_BYTE);
+  LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_7, LL_DMA_PDATAALIGN_BYTE);
+  LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_7, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+  LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_7, LL_DMA_MODE_NORMAL);
+  LL_DMA_SetChannelPriorityLevel(DMA1, LL_DMA_CHANNEL_7, LL_DMA_PRIORITY_MEDIUM);
 
   /* Initialize latest data */
   memset(&latest_packet, 0, sizeof(WM_Packet_t));
+
+  /* TX complete flag initialized to ready */
+  wm_tx_complete = 1;
 }
 
 /** @brief  Start the WindMaster
@@ -107,12 +126,12 @@ bool wm_is_running(void) {
   * @retval true if a complete packet was processed, false otherwise
   * @note   Processes data from the DMA buffer, extracts complete packets,
   *         verifies checksums, and updates the latest_packet structure.
-  * @note   ISR-safe with iteration limit to prevent blocking
+  * @note   Iteration limit to prevent blocking.
   */
 bool wm_drain_and_queue(void)
 {
     const uint16_t MASK = (uint16_t)(DMA_BUFFER_SIZE - 1);
-    const uint16_t wr   = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_5)) & MASK);
+    const uint16_t wr   = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_6)) & MASK);
 
     uint16_t rd    = dma_old_pos_wm;
     uint16_t avail = (uint16_t)((wr - rd) & MASK);
@@ -160,18 +179,48 @@ bool wm_drain_and_queue(void)
 
 /* Private functions ---------------------------------------------------------*/
 
-/** @brief  Send a command to the dummy WindMaster
+/** @brief  Send a command to the dummy WindMaster using DMA TX
   * @param  cmd: Null-terminated command string to send
   * @retval None
-  * @note   Transmits the command string over UART4 to control the dummy WindMaster.
+  * @note   Transmits the command string over USART2 using DMA1 Channel 7.
+  *         Waits for previous TX to complete before starting new transfer.
+  *         Function blocks until DMA transfer initiates (non-blocking transfer itself).
   */
 static void send_command(const char* cmd) {
-    /* Simple transmission - same as working test code */
-    while (*cmd) {
-        while (!LL_USART_IsActiveFlag_TXE(UART4));
-        LL_USART_TransmitData8(UART4, *cmd++);
-    }
-    while (!LL_USART_IsActiveFlag_TC(UART4));
+  /* Wait for previous TX to complete, ensures synchronization */
+  while (!wm_tx_complete);
+
+  /* Copy command to DMA buffer */
+  uint16_t len = 0;
+  while (cmd[len] && len < (sizeof(wm_tx_buffer) - 1)) {
+      wm_tx_buffer[len] = (uint8_t)cmd[len];
+      len++;
+  }
+
+  if (len == 0) return;  /* Empty command */
+
+  /* Mark TX as in-progress */
+  wm_tx_complete = 0;
+
+  /* Disable DMA before reconfiguring */
+  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_7);
+
+  /* Configure DMA addresses and length */
+  LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_7,
+                        (uint32_t)wm_tx_buffer,
+                        LL_USART_DMA_GetRegAddr(USART2, LL_USART_DMA_REG_DATA_TRANSMIT),
+                        LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+
+  LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_7, len);
+
+  /* Clear any pending TC flag before re-enabling */
+  LL_DMA_ClearFlag_TC7(DMA1);
+
+  /* Enable DMA Transfer Complete interrupt to signal completion */
+  LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_7);
+
+  /* Enable DMA channel to start transfer */
+  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_7);
 }
 
 /** @brief Parse a received WM packet

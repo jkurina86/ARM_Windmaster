@@ -2,8 +2,8 @@
 # VectorNav IMU Dummy Sensor (Windows)
 # - Generates VN_Packet_t structures matching vectornav.h
 # - 115200 8-N-1
-# - 86-byte packets at 20 Hz after "START"
-# - Halts on "STOP"
+# - 86-byte packets at 20 Hz after ASYNC ON command
+# - Halts on ASYNC OFF command
 
 import sys
 import time
@@ -39,7 +39,7 @@ def pick_com_port():
 
 def pick_mode():
     print("\nChoose transmit mode:")
-    print("  1) Continuous until STOP or Ctrl+C")
+    print("  1) Command-driven (respond to ASYNC ON/OFF commands)")
     print("  2) Fixed number of messages")
     choice = input("Enter 1 or 2: ").strip()
     if choice == "2":
@@ -47,9 +47,9 @@ def pick_mode():
         try:
             return int(n)
         except ValueError:
-            print("Invalid number, defaulting to continuous mode.")
+            print("Invalid number, defaulting to command-driven mode.")
             return None
-    return None  # None = continuous
+    return None  # None = command-driven
 
 def build_packet(packet_number):
     """
@@ -172,9 +172,11 @@ def main():
     if count_limit:
         print(f"Mode: fixed count ({count_limit} packets)")
     else:
-        print("Mode: continuous until STOP or Ctrl+C")
+        print("Mode: command-driven (respond to ASYNC ON/OFF)")
 
-    print("\nWaiting for START (send ASCII 'START' from peer)...")
+    print("\nWaiting for VectorNav ASYNC commands:")
+    print("  ASYNC ON:  $VNWRG,75,1,20,01,01EA*6441\\n → Start transmitting")
+    print("  ASYNC OFF: $VNWRG,75,0,20,00*F819\\n        → Stop transmitting")
     print("Packet structure:")
     print("  - sync: 0xFA")
     print("  - YPR: varying between reasonable values")
@@ -197,36 +199,40 @@ def main():
                     text = data.decode("ascii", errors="ignore")
                 except Exception:
                     text = ""
-                for ch in text:
-                    if ch.isspace():
-                        if cmd_buf:
-                            token = cmd_buf.strip().upper()
-                            if token == "START":
-                                started = True
-                                sent_count = 0
-                                next_send = time.monotonic()
-                                print("[CMD] START → transmitting")
-                            elif token == "STOP":
-                                started = False
-                                print(f"Total packets sent: {sent_count}")
-                                print("[CMD] STOP → halted")
-                            cmd_buf = ""
-                    else:
-                        cmd_buf += ch
-                        if len(cmd_buf) > 64:
-                            cmd_buf = cmd_buf[-64:]
-                        # Check for complete commands after appending
-                        if cmd_buf.upper() == "START":
-                            started = True
-                            sent_count = 0
-                            next_send = time.monotonic()
-                            print("[CMD] START → transmitting")
-                            cmd_buf = ""
-                        elif cmd_buf.upper() == "STOP":
-                            started = False
-                            print(f"Total packets sent: {sent_count}")
-                            print("[CMD] STOP → halted")
-                            cmd_buf = ""
+                # Accumulate incoming data
+                cmd_buf += text
+
+                # Check for ASYNC ON command
+                if "$VNWRG,75,1,20,01,01EA*6441" in cmd_buf:
+                    # Echo the command first
+                    async_on_cmd = "$VNWRG,75,1,20,01,01EA*6441\n"
+                    ser.write(async_on_cmd.encode('ascii'))
+                    ser.flush()
+                    print(f"[ECHO] {async_on_cmd.strip()}")
+                    # Then start transmitting
+                    started = True
+                    sent_count = 0
+                    next_send = time.monotonic()
+                    print("[CMD] ASYNC ON → transmitting")
+                    # Remove processed command from buffer
+                    cmd_buf = cmd_buf.split("$VNWRG,75,1,20,01,01EA*6441", 1)[1]
+
+                # Check for ASYNC OFF command
+                elif "$VNWRG,75,0,20,00*F819" in cmd_buf:
+                    # Stop transmitting first
+                    started = False
+                    print(f"[CMD] ASYNC OFF → halted ({sent_count} packets sent)")
+                    # Then echo the command back
+                    async_off_cmd = "$VNWRG,75,0,20,00*F819\n"
+                    ser.write(async_off_cmd.encode('ascii'))
+                    ser.flush()
+                    print(f"[ECHO] {async_off_cmd.strip()}")
+                    # Remove processed command from buffer
+                    cmd_buf = cmd_buf.split("$VNWRG,75,0,20,00*F819", 1)[1]
+
+                # Limit buffer size to prevent memory bloat
+                if len(cmd_buf) > 256:
+                    cmd_buf = cmd_buf[-128:]
 
             # --- transmit ---
             now = time.monotonic()
