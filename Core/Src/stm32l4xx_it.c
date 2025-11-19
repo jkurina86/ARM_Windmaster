@@ -462,8 +462,15 @@ void USART2_IRQHandler(void)
 {
   /* USER CODE BEGIN USART2_IRQn 0 */
 
-  /* Handle USART2 RXNE interrupt */
-  //uart_user_input(USART2, &uart2_rx_char, uart2_rx_buffer, &uart2_rx_index, uart2_print_buffer, &uart2_print_flag);
+  /* Handle USART2 RXNE interrupt - drain RX FIFO to prevent ISR re-entry */
+  while (LL_USART_IsActiveFlag_RXNE(USART2)) {
+    (void)LL_USART_ReceiveData8(USART2);  /* Read and discard incoming data (command echo) */
+  }
+
+  /* Clear IDLE flag if set */
+  if (LL_USART_IsActiveFlag_IDLE(USART2)) {
+    LL_USART_ClearFlag_IDLE(USART2);
+  }
 
   /* USER CODE END USART2_IRQn 0 */
   /* USER CODE BEGIN USART2_IRQn 1 */
@@ -478,8 +485,15 @@ void USART3_IRQHandler(void)
 {
   /* USER CODE BEGIN USART3_IRQn 0 */
 
-  /* Handle USART3 RXNE interrupt */
-  //uart_user_input(USART3, &uart3_rx_char, uart3_rx_buffer, &uart3_rx_index, uart3_print_buffer, &uart3_print_flag);
+  /* Handle USART3 RXNE interrupt - drain RX FIFO to prevent ISR re-entry */
+  while (LL_USART_IsActiveFlag_RXNE(USART3)) {
+    (void)LL_USART_ReceiveData8(USART3);  /* Read and discard incoming data (command echo) */
+  }
+
+  /* Clear IDLE flag if set */
+  if (LL_USART_IsActiveFlag_IDLE(USART3)) {
+    LL_USART_ClearFlag_IDLE(USART3);
+  }
 
   /* USER CODE END USART3_IRQn 0 */
   /* USER CODE BEGIN USART3_IRQn 1 */

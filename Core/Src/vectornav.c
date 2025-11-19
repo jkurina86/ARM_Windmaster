@@ -244,7 +244,7 @@ bool vn_drain_and_queue(void) {
   * @note   Transmits the command string over USART3 using DMA1 Channel 2.
   *         Waits for previous TX to complete before starting new transfer.
   *         Function blocks until DMA transfer initiates (non-blocking transfer itself).
-  */`
+  */
 static void send_command(const char* cmd) {
   /* Wait for previous TX to complete, ensures synchronization */
   while (!vn_tx_complete);
