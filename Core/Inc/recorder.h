@@ -61,7 +61,7 @@ typedef struct {
   uint8_t footer_padding[30];    // Padding to reach 128 bytes
 } Recorder_Data_t;
 
-/* Statistics structure for monitoring */
+/* Stats structure for debug/monitoring */
 typedef struct {
   bool recording;                 // Currently recording
   uint32_t records_written;       // Total records written to SD

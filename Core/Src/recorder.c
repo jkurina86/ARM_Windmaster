@@ -214,11 +214,7 @@ void recorder_service(void) {
     /* Pair the WindMaster and VectorNav data */
     Recorder_Data_t record = build_record(&vn->vn_packet, &wm->wm_packet);
 
-    /* TEMPORARY: for testing, average the timestamps and put it in the timegps field.
-     * This is slow because it involves 64-bit values. In production, the timestamp will
-     * be provided by the VectorNav. 
-     */
-    record.timegps = (wm->timestamp_us + vn->timestamp_us) / 2;
+    /* Timestamp is provided by VectorNav GPS time (nanoseconds since 1980-01-01) */
 
     /* Copy the record into the active buffer at the current position */
     Recorder_Data_t* dest = (Recorder_Data_t*)(active_buffer + (active_buf_index * sizeof(Recorder_Data_t)));
@@ -286,7 +282,7 @@ Recorder_Data_t build_record(VN_Packet_t *vn_data, WM_Packet_t *wm_data) {
 
     record.magic_number = 0xFACEFACE; // Unique identifier for the start of a record
     record.log_index = record_index++;
-    
+
     record.timegps = vn_data->timegps;
     record.yaw = vn_data->yaw;
     record.pitch = vn_data->pitch;

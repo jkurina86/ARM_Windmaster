@@ -25,7 +25,7 @@ class RecorderData(NamedTuple):
     """128-byte record structure matching Recorder_Data_t"""
     magic_number: int       # uint32_t
     log_index: int          # uint32_t
-    timegps: int            # uint64_t (microseconds)
+    timegps: int            # uint64_t (nanoseconds since GPS epoch 1980-01-01)
     yaw: float              # float
     pitch: float            # float
     roll: float             # float
@@ -235,28 +235,28 @@ def export_txt(records: List[RecorderData], output_path: Path):
             f.write(f"Record #{i} (Index: {record.log_index})\n")
             f.write("-" * 80 + "\n")
 
-            # Timestamp - convert microseconds since 2000-01-01 00:00:00 UTC to local time
-            # System epoch is January 1, 2000 00:00:00 UTC (not Unix epoch)
-            # Total seconds and microseconds
-            total_seconds = record.timegps // 1_000_000
-            microseconds = record.timegps % 1_000_000
+            # Timestamp - convert nanoseconds since GPS epoch (1980-01-01) to local time
+            # GPS epoch: 1980-01-01 00:00:00 UTC
+            # Unix epoch: 1970-01-01 00:00:00 UTC
+            # Seconds between 1970-01-01 and 1980-01-01 = 315964800
+            total_nanoseconds = record.timegps
+            total_seconds = total_nanoseconds // 1_000_000_000
+            nanoseconds = total_nanoseconds % 1_000_000_000
 
-            # Convert seconds since 2000-01-01 UTC to Unix timestamp
-            # Unix epoch: 1970-01-01, GPS 2000 epoch: 2000-01-01
-            # Seconds between 1970-01-01 and 2000-01-01 = 946684800
-            unix_timestamp = total_seconds + 946684800
+            # Convert seconds since GPS epoch (1980-01-01) to Unix timestamp
+            gps_epoch_offset = 315964800  # Seconds between Unix epoch and GPS epoch
+            unix_timestamp = total_seconds + gps_epoch_offset + (nanoseconds / 1_000_000_000)
 
             # Create datetime in UTC, then convert to local timezone
-            # fromtimestamp() with tz=timezone.utc creates UTC datetime, then astimezone() converts to local
             dt_utc = datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
             dt = dt_utc.astimezone()
 
-            # Extract milliseconds for display
-            ms = microseconds // 1000
+            # Extract milliseconds for display (from nanoseconds)
+            ms = nanoseconds // 1_000_000
             timestamp_str = dt.strftime('%d-%m-%Y %H:%M:%S') + f".{ms:03d}"
 
             f.write(f"  Timestamp: {timestamp_str}\n")
-            f.write(f"            ({record.timegps} us since 2000-01-01)\n\n")
+            f.write(f"            ({record.timegps} ns since GPS epoch 1980-01-01)\n\n")
 
             # VectorNav (IMU/GPS) Data
             f.write("  VectorNav Data:\n")
