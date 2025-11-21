@@ -291,18 +291,18 @@ Recorder_Data_t build_record(VN_Packet_t *vn_data, WM_Packet_t *wm_data) {
     record.yaw = vn_data->yaw;
     record.pitch = vn_data->pitch;
     record.roll = vn_data->roll;
-    record.vel_n = vn_data->vel_n;
-    record.vel_e = vn_data->vel_e;
-    record.vel_d = vn_data->vel_d;
-    record.acc_x = vn_data->acc_x;
-    record.acc_y = vn_data->acc_y;
-    record.acc_z = vn_data->acc_z;
     record.gyro_x = vn_data->gyro_x;
     record.gyro_y = vn_data->gyro_y;
     record.gyro_z = vn_data->gyro_z;
     record.latitude = vn_data->latitude;
     record.longitude = vn_data->longitude;
     record.altitude = vn_data->altitude;
+    record.vel_n = vn_data->vel_n;
+    record.vel_e = vn_data->vel_e;
+    record.vel_d = vn_data->vel_d;
+    record.acc_x = vn_data->acc_x;
+    record.acc_y = vn_data->acc_y;
+    record.acc_z = vn_data->acc_z;
 
     record.U_axis_speed = wm_data->U_axis_speed;
     record.V_axis_speed = wm_data->V_axis_speed;

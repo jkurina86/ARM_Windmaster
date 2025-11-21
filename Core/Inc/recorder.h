@@ -41,18 +41,18 @@ typedef struct {
   float yaw;
   float pitch;
   float roll;
-  float vel_n;
-  float vel_e;
-  float vel_d;
-  float acc_x;
-  float acc_y;
-  float acc_z;
   float gyro_x;
   float gyro_y;
   float gyro_z;
   double latitude;
   double longitude;
   double altitude;
+  float vel_n;
+  float vel_e;
+  float vel_d;
+  float acc_x;
+  float acc_y;
+  float acc_z;
   int16_t U_axis_speed;   // U-axis wind speed
   int16_t V_axis_speed;   // V-axis wind speed
   int16_t W_axis_speed;   // W-axis wind speed

@@ -314,6 +314,7 @@ void DMA1_Channel2_IRQHandler(void)
   extern volatile uint8_t vn_tx_complete;
   if (LL_DMA_IsActiveFlag_TC2(DMA1)) {
     LL_DMA_ClearFlag_TC2(DMA1);
+    LL_DMA_DisableIT_TC(DMA1, LL_DMA_CHANNEL_2);  /* Disable TC interrupt after transfer complete */
     vn_tx_complete = 1;  /* Signal that VectorNav TX is complete */
   }
 
@@ -376,6 +377,7 @@ void DMA1_Channel7_IRQHandler(void)
   extern volatile uint8_t wm_tx_complete;
   if (LL_DMA_IsActiveFlag_TC7(DMA1)) {
     LL_DMA_ClearFlag_TC7(DMA1);
+    LL_DMA_DisableIT_TC(DMA1, LL_DMA_CHANNEL_7);  /* Disable TC interrupt after transfer complete */
     wm_tx_complete = 1;  /* Signal that WindMaster TX is complete */
   }
 

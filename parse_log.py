@@ -29,18 +29,18 @@ class RecorderData(NamedTuple):
     yaw: float              # float
     pitch: float            # float
     roll: float             # float
-    vel_n: float            # float
-    vel_e: float            # float
-    vel_d: float            # float
-    acc_x: float            # float
-    acc_y: float            # float
-    acc_z: float            # float
     gyro_x: float           # float
     gyro_y: float           # float
     gyro_z: float           # float
     latitude: float         # double
     longitude: float        # double
     altitude: float         # double
+    vel_n: float            # float
+    vel_e: float            # float
+    vel_d: float            # float
+    acc_x: float            # float
+    acc_y: float            # float
+    acc_z: float            # float
     U_axis_speed: int       # int16_t
     V_axis_speed: int       # int16_t
     W_axis_speed: int       # int16_t
@@ -51,8 +51,8 @@ class RecorderData(NamedTuple):
 
 # Struct format string (Little Endian):
 # I = uint32_t, Q = uint64_t, f = float, d = double, h = int16_t
-# Format: magic(I) index(I) time(Q) 12×float 3×double 5×int16
-RECORD_FORMAT = '<IIQffffffffffffdddhhhhh'
+# Format: magic(I) index(I) time(Q) YPR(3f) Gyro(3f) Lat/Lon/Alt(3d) Vel(3f) Acc(3f) WindMaster(5h)
+RECORD_FORMAT = '<IIQffffffdddffffffhhhhh'
 RECORD_SIZE = 128
 PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # Should be 98 bytes (30 bytes padding at end)
 
