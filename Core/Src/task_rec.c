@@ -57,6 +57,13 @@ void handle_rec_start(const task_data_t *task_data)
     /* Clear task flag first */
     tasker_clear_task_pending(TASK_REC_START);
 
+    /* Check if already recording */
+    if (recorder_is_recording()) {
+        shell_print("Recorder is already running.\r\n");
+        shell_print(SHELL_PROMPT);
+        return;
+    }
+
     shell_print("Starting recorder...\r\n");
     shell_print(SHELL_PROMPT);
 
@@ -74,10 +81,24 @@ void handle_rec_stop(const task_data_t *task_data)
 {
     /* Clear task flag first */
     tasker_clear_task_pending(TASK_REC_STOP);
+
+    /* Check if recording */
+    if (!recorder_is_recording()) {
+        shell_print("Recorder is not running.\r\n");
+        shell_print(SHELL_PROMPT);
+        return;
+    }
     
     shell_print("Stopping recorder...\r\n");
-    recorder_stop();
+    recorder_stop();    
     shell_print("Recorder stopped!\r\n");
+
+    /* Final stats */
+    schedule_rec_stats();
+
+    /* Clear stats */
+    recorder_clear_stats();
+
     shell_print(SHELL_PROMPT);
 }
 

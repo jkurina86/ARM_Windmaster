@@ -85,6 +85,8 @@ void recorder_start(void);
 void recorder_stop(void);
 void recorder_service(void);
 recorder_stats_t recorder_get_stats(void);
+void recorder_clear_stats(void);
+bool recorder_is_recording(void);
 
 void recorder_queue_vn(const VN_Packet_t *pkt, uint64_t t_us);
 void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us);

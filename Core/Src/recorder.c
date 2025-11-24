@@ -15,8 +15,8 @@
 /* Definitions ------------------------------------------------------------------*/
 #define WM_LEN 23
 #define VN_LEN 86
-#define WM_Q_LEN 32
-#define VN_Q_LEN 32
+#define WM_Q_LEN 64
+#define VN_Q_LEN 64
 #define RECORD_BUFFER_SIZE 4096  
 #define MAX_RECORDS_PER_SERVICE 32  /* 32*128 = 4KB, Only one full buffer will be processed at a time at most. */
 
@@ -347,4 +347,25 @@ recorder_stats_t recorder_get_stats(void)
   stats.filename[sizeof(stats.filename) - 1] = '\0';
   
   return stats;
+}
+
+/* @brief Clear recorder statistics
+  * @param None
+  * @retval None
+  */
+void recorder_clear_stats(void) 
+{
+  wm_drops = 0;
+  vn_drops = 0;
+  wm_queue_max = 0;
+  vn_queue_max = 0;
+}
+
+/* @brief Check if recorder is currently recording
+  * @param None
+  * @retval bool: true if recording, false otherwise
+  */
+bool recorder_is_recording(void)
+{
+  return recording;
 }
