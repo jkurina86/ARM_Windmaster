@@ -86,8 +86,13 @@ void recorder_start(void) {
   active_buf_index = 0;
   flush_pending = false;
 
-  /* Generate log filename */
-  snprintf(filename, sizeof(filename), "log.bin");
+  /* Generate log filename with timestamp: YYYY-MM-DD-HH-MM-SS.bin */
+  uint32_t now_ms = time_ms_now();
+  uint32_t now_s = now_ms / 1000;
+  RTC_DateTime_t dt = epoch_to_datetime((uint64_t)now_s);
+  snprintf(filename, sizeof(filename), "%04d-%02d-%02d-%02d-%02d-%02d.bin",
+           dt.years + 2000, dt.months, dt.days,
+           dt.hours, dt.minutes, dt.seconds);
 
   /* Open log file for writing (create it if it doesn't exist) */
   FS_Result_t fs_res = filesystem_open_log(&log_fil, filename);
