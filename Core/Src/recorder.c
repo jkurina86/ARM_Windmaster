@@ -141,10 +141,10 @@ void recorder_stop(void) {
 
 /* @brief Queue a WindMaster packet for recording
  * @param pkt: Pointer to WM_Packet_t structure with WindMaster data
- * @param t_us: Timestamp in microseconds
+ * @param t_ms: Timestamp in milliseconds
  * @retval None
   */
-void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us)
+void recorder_queue_wm(const WM_Packet_t *pkt, uint32_t t_ms)
 {
   uint8_t next = (wm_q_head + 1) & (WM_Q_LEN - 1);
   if (next == wm_q_tail) {
@@ -154,7 +154,7 @@ void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us)
   }
 
   wm_queue[wm_q_head].wm_packet = *pkt;
-  wm_queue[wm_q_head].timestamp_us = t_us;
+  wm_queue[wm_q_head].timestamp_ms = t_ms;
 
   wm_q_head = next;
 
@@ -167,10 +167,10 @@ void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us)
 
 /* @brief Queue a VectorNav packet for recording
  * @param pkt: Pointer to VN_Packet_t structure with IMU data
- * @param t_us: Timestamp in microseconds
+ * @param t_ms: Timestamp in milliseconds
  * @retval None
   */
-void recorder_queue_vn(const VN_Packet_t *pkt, uint64_t t_us)
+void recorder_queue_vn(const VN_Packet_t *pkt, uint32_t t_ms)
 {
   uint8_t next = (vn_q_head + 1) & (VN_Q_LEN - 1);
   if (next == vn_q_tail) {
@@ -179,7 +179,7 @@ void recorder_queue_vn(const VN_Packet_t *pkt, uint64_t t_us)
   }
 
   vn_queue[vn_q_head].vn_packet = *pkt;
-  vn_queue[vn_q_head].timestamp_us = t_us;
+  vn_queue[vn_q_head].timestamp_ms = t_ms;
 
   vn_q_head = next;
 
@@ -349,7 +349,7 @@ recorder_stats_t recorder_get_stats(void)
   return stats;
 }
 
-/* @brief Clear recorder statistics
+/*  @brief Clear recorder statistics
   * @param None
   * @retval None
   */
@@ -361,7 +361,7 @@ void recorder_clear_stats(void)
   vn_queue_max = 0;
 }
 
-/* @brief Check if recorder is currently recording
+/*  @brief Check if recorder is currently recording
   * @param None
   * @retval bool: true if recording, false otherwise
   */

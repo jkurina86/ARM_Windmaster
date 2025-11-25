@@ -85,7 +85,7 @@ STLinkLog.txt
 # Misc.
 .specify/
 .github/
-CLAUDE.md
+CLAUDE*
 log.txt
 vnsdk/
 nul

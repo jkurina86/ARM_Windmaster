@@ -302,7 +302,7 @@ void handle_rtc_settime(const task_data_t *task_data)
     
     /* Update system time as well */
     if (status == RTC_OK) {
-        systime_request_update(datetime_to_epoch(&datetime));
+        systime_request_update(datetime_to_epoch(&datetime) * 1000);
     }
 
     if (status == RTC_OK) {

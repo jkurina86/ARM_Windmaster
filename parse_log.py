@@ -25,6 +25,8 @@ class RecorderData(NamedTuple):
     """128-byte record structure matching Recorder_Data_t"""
     magic_number: int       # uint32_t
     log_index: int          # uint32_t
+    cycle_count: int        # uint8_t (NEW: tracks g_epoch_ms wraparounds)
+    timestamp_ms: int       # uint32_t (NEW: timestamp in milliseconds since 2000-01-01)
     timegps: int            # uint64_t (nanoseconds since GPS epoch 1980-01-01)
     yaw: float              # float
     pitch: float            # float
@@ -46,15 +48,15 @@ class RecorderData(NamedTuple):
     W_axis_speed: int       # int16_t
     SoS: int                # int16_t (Speed of Sound)
     Temp: int               # int16_t (Temperature)
-    # footer_padding[30] - not parsed
+    # footer_padding[25] - not parsed
 
 
 # Struct format string (Little Endian):
-# I = uint32_t, Q = uint64_t, f = float, d = double, h = int16_t
-# Format: magic(I) index(I) time(Q) YPR(3f) Gyro(3f) Lat/Lon/Alt(3d) Vel(3f) Acc(3f) WindMaster(5h)
-RECORD_FORMAT = '<IIQffffffdddffffffhhhhh'
+# I = uint32_t, Q = uint64_t, f = float, d = double, h = int16_t, B = uint8_t
+# Format: magic(I) index(I) cycle(B) timestamp_ms(I) timegps(Q) YPR(3f) Gyro(3f) Lat/Lon/Alt(3d) Vel(3f) Acc(3f) WindMaster(5h)
+RECORD_FORMAT = '<IIBIQffffffdddffffffhhhhh'
 RECORD_SIZE = 128
-PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # Should be 98 bytes (30 bytes padding at end)
+PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # Should be 99 bytes (29 bytes padding at end)
 
 MAGIC_NUMBER = 0xFACEFACE
 
@@ -79,12 +81,13 @@ def validate_record(record: RecorderData, index: int) -> List[str]:
     
     if record.log_index != index:
         warnings.append(f"Record {index}: Index mismatch (expected {index}, got {record.log_index})")
-    
+
     # Check for reasonable timestamp (not zero and not absurdly large)
-    if record.timegps == 0:
-        warnings.append(f"Record {index}: Zero timestamp")
-    elif record.timegps > 1e15:  # ~31 years in microseconds
-        warnings.append(f"Record {index}: Unrealistic timestamp {record.timegps}")
+    # timestamp_ms is milliseconds since 2000-01-01, max ~4.3B (49.7 days per cycle)
+    if record.timestamp_ms == 0 and record.cycle_count == 0:
+        warnings.append(f"Record {index}: Zero timestamp with zero cycle count")
+    elif record.timestamp_ms > 0xFFFFFFFF:  # Should never happen with uint32_t
+        warnings.append(f"Record {index}: Unrealistic timestamp_ms {record.timestamp_ms}")
     
     return warnings
 
@@ -153,19 +156,25 @@ def print_statistics(records: List[RecorderData]):
     print("=" * 60)
     
     print(f"Total records: {len(records)}")
-    
-    # Time span
-    first_time = records[0].timegps
-    last_time = records[-1].timegps
-    duration_us = last_time - first_time
-    duration_s = duration_us / 1e6
-    
-    print(f"First timestamp: {first_time} µs")
-    print(f"Last timestamp:  {last_time} µs")
+
+    # Time span - using system timestamps (with cycle count for absolute time)
+    first_record = records[0]
+    last_record = records[-1]
+
+    # Reconstruct absolute milliseconds using cycle_count
+    first_time_ms = (first_record.cycle_count << 32) | first_record.timestamp_ms
+    last_time_ms = (last_record.cycle_count << 32) | last_record.timestamp_ms
+
+    duration_ms = last_time_ms - first_time_ms
+    duration_s = duration_ms / 1000.0
+
+    print(f"First timestamp: {first_record.timestamp_ms} ms (cycle {first_record.cycle_count})")
+    print(f"Last timestamp:  {last_record.timestamp_ms} ms (cycle {last_record.cycle_count})")
+    print(f"Absolute time range: {first_time_ms}-{last_time_ms} ms")
     print(f"Duration: {duration_s:.2f} seconds ({duration_s/60:.2f} minutes)")
-    
+
     # Sample rate
-    if len(records) > 1:
+    if len(records) > 1 and duration_s > 0:
         avg_rate = len(records) / duration_s
         print(f"Average rate: {avg_rate:.2f} Hz")
     
@@ -235,28 +244,23 @@ def export_txt(records: List[RecorderData], output_path: Path):
             f.write(f"Record #{i} (Index: {record.log_index})\n")
             f.write("-" * 80 + "\n")
 
-            # Timestamp - convert nanoseconds since GPS epoch (1980-01-01) to local time
-            # GPS epoch: 1980-01-01 00:00:00 UTC
-            # Unix epoch: 1970-01-01 00:00:00 UTC
-            # Seconds between 1970-01-01 and 1980-01-01 = 315964800
-            total_nanoseconds = record.timegps
-            total_seconds = total_nanoseconds // 1_000_000_000
-            nanoseconds = total_nanoseconds % 1_000_000_000
+            # Timestamp - milliseconds since 2000-01-01 with cycle counter for absolute time
+            # cycle_count increments when timestamp_ms wraps from 0xFFFFFFFF to 0
+            absolute_ms = (record.cycle_count << 32) | record.timestamp_ms
 
-            # Convert seconds since GPS epoch (1980-01-01) to Unix timestamp
-            gps_epoch_offset = 315964800  # Seconds between Unix epoch and GPS epoch
-            unix_timestamp = total_seconds + gps_epoch_offset + (nanoseconds / 1_000_000_000)
+            # Convert milliseconds since 2000-01-01 to Unix timestamp
+            epoch_2000_offset = 946684800  # Seconds between Unix epoch (1970) and 2000-01-01
+            total_seconds = (absolute_ms // 1000) + epoch_2000_offset
+            milliseconds = absolute_ms % 1000
 
             # Create datetime in UTC, then convert to local timezone
-            dt_utc = datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
+            dt_utc = datetime.fromtimestamp(total_seconds, tz=timezone.utc)
             dt = dt_utc.astimezone()
 
-            # Extract milliseconds for display (from nanoseconds)
-            ms = nanoseconds // 1_000_000
-            timestamp_str = dt.strftime('%d-%m-%Y %H:%M:%S') + f".{ms:03d}"
+            timestamp_str = dt.strftime('%d-%m-%Y %H:%M:%S') + f".{milliseconds:03d}"
 
             f.write(f"  Timestamp: {timestamp_str}\n")
-            f.write(f"            ({record.timegps} ns since GPS epoch 1980-01-01)\n\n")
+            f.write(f"            (cycle={record.cycle_count}, offset_ms={record.timestamp_ms}, absolute_ms={absolute_ms})\n\n")
 
             # VectorNav (IMU/GPS) Data
             f.write("  VectorNav Data:\n")
@@ -312,8 +316,9 @@ def main():
         print(f"\nFirst {args.head} records:")
         print("-" * 60)
         for i, record in enumerate(records[:args.head]):
+            absolute_ms = (record.cycle_count << 32) | record.timestamp_ms
             print(f"Record {i}:")
-            print(f"  Timestamp: {record.timegps} µs")
+            print(f"  Timestamp: {record.timestamp_ms} ms (cycle {record.cycle_count}, absolute {absolute_ms} ms)")
             print(f"  YPR: ({record.yaw:.2f}, {record.pitch:.2f}, {record.roll:.2f}) deg")
             print(f"  Wind UVW: ({record.U_axis_speed}, {record.V_axis_speed}, {record.W_axis_speed})")
             print(f"  Position: ({record.latitude:.6f}, {record.longitude:.6f}, {record.altitude:.2f}m)")

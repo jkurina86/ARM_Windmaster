@@ -25,19 +25,21 @@ extern "C" {
 
 typedef struct {
   WM_Packet_t wm_packet;
-  uint64_t timestamp_us;
+  uint32_t timestamp_ms;
 } WM_QueueEntry_t;
 
 typedef struct {
   VN_Packet_t vn_packet;
-  uint64_t timestamp_us;
+  uint32_t timestamp_ms;
 } VN_QueueEntry_t;
 
 /* Combined data structure for recording both WindMaster and VectorNav data */
 typedef struct {
-  uint32_t magic_number; // Unique identifier for the start of a record
-  uint32_t log_index;
-  uint64_t timegps;     // GPS time in nanoseconds since 1-1-1980 00:00:00 (8 bytes)
+  uint32_t magic_number;    // Unique identifier for the start of a record
+  uint32_t log_index;       // Record index
+  uint8_t  cycle_count;     // Cycle counter: increments every 49.7 days (1 byte)
+  uint32_t timestamp_ms;    // Millisecond timestamp (4 bytes)
+  uint64_t timegps;         // GPS time in nanoseconds since 1-1-1980 00:00:00 (8 bytes)
   float yaw;
   float pitch;
   float roll;
@@ -53,12 +55,12 @@ typedef struct {
   float acc_x;
   float acc_y;
   float acc_z;
-  int16_t U_axis_speed;   // U-axis wind speed
-  int16_t V_axis_speed;   // V-axis wind speed
-  int16_t W_axis_speed;   // W-axis wind speed
-  int16_t SoS;            // Speed of Sound
-  int16_t Temp;                   // Temperature from PRT
-  uint8_t footer_padding[30];    // Padding to reach 128 bytes
+  int16_t U_axis_speed;     // U-axis wind speed
+  int16_t V_axis_speed;     // V-axis wind speed
+  int16_t W_axis_speed;     // W-axis wind speed
+  int16_t SoS;              // Speed of Sound
+  int16_t Temp;             // Temperature from PRT
+  uint8_t footer_padding[25];    // Padding reduced from 30 to 25 bytes (still 128 total)
 } Recorder_Data_t;
 
 /* Stats structure for debug/monitoring */
@@ -88,8 +90,8 @@ recorder_stats_t recorder_get_stats(void);
 void recorder_clear_stats(void);
 bool recorder_is_recording(void);
 
-void recorder_queue_vn(const VN_Packet_t *pkt, uint64_t t_us);
-void recorder_queue_wm(const WM_Packet_t *pkt, uint64_t t_us);
+void recorder_queue_vn(const VN_Packet_t *pkt, uint32_t t_ms);
+void recorder_queue_wm(const WM_Packet_t *pkt, uint32_t t_ms);
 
 #ifdef __cplusplus
 }

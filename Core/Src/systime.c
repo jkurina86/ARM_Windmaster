@@ -10,14 +10,14 @@
 #include "stm32l4xx_ll_tim.h"
 
 /* Internal State (Global) -------------------------------------------------- */
-static volatile uint64_t g_epoch_time = 0;                          /* RTC aligned seconds at last PPS */
+static volatile uint32_t g_epoch_ms = 0;                            /* Milliseconds since 2000-01-01 00:00:00 (wraps every 49.7 days) */
 static volatile uint32_t g_pps_t2 = 0;                              /* TIM2 counter at last PPS */
-static volatile uint64_t g_tps_est = 1000000;                       /* TIM2 ticks per second estimate (Nominal: 1 MHz) */
-static volatile int64_t g_phase = 0;                                /* Phase offset from the RTC Pulses in ticks */
-static volatile uint64_t g_scale_q32 = (1000000ULL << 32);          /* fixed-point scale for microseconds per tick */
-static volatile uint64_t g_pps_count = 0;                           /* Number of PPS events seen */
+static volatile uint32_t g_tps_est = 1000000;                       /* TIM2 ticks per second estimate (Nominal: 1 MHz) */
+static volatile int32_t g_phase_ticks = 0;                          /* Phase offset from the RTC Pulses in ticks */
+static volatile uint32_t g_pps_count = 0;                           /* Number of PPS events seen */
+static volatile uint32_t g_cycle_count = 0;                         /* Number of times g_epoch_ms wrapped from 0xFFFFFFFF to 0 */
 static volatile bool g_set_pending = false;                         /* Request to set time on next PPS */
-static volatile uint64_t g_set_epoch = 0;                           /* Epoch time to set on next PPS */
+static volatile uint32_t g_set_epoch_ms = 0;                        /* Epoch time (in ms) to set on next PPS */
 
 /* Private defines -----------------------------------------------------------*/
 #define RATE_SHIFT 4
@@ -25,22 +25,6 @@ static volatile uint64_t g_set_epoch = 0;                           /* Epoch tim
 #define EPOCH_2000_OFFSET 946684800ULL /* RTC epoch start (for conversion to UNIX Epoch) */
 
 /* Private inline helper functions -------------------------------------------*/
-
-/** @brief Update the scale factor for microseconds per tick
-  * @param tps Ticks per second
-  * @retval None
-  * @note Updates g_scale_q32 and avoids FPU in the ISR with Q32 representation
-  * @note This function involves 64-bit arithmetic, which is not ideal.
-*/
-static inline void update_scale(uint64_t tps) {
-    if (!tps) tps = 1000000ULL; /* Avoid divide-by-zero. Default to nominal case. */
-    
-    /* First converts to Q32 format with a 32-bit left-shift.
-     * 64-bit Q Notation: Integer part is upper 32 bits, fractional part is lower 32 bits.
-     * Divide this by ticks per second to get a Q32 scaling factor for microseconds per tick.
-    */
-    g_scale_q32 = (1000000ULL << 32) / tps;
-}
 
 /** @brief Check if a year is a leap year
   * @param y Year (e.g., 2024)
@@ -72,27 +56,27 @@ static inline uint32_t month_offset(uint32_t m, bool leap){
   * @param initial_dt Pointer to RTC_DateTime_t structure with initial date/time
   * @retval None
   * @note Initializes internal state and TIM2 counter reference
+  * @note Converts seconds to milliseconds (no Q32 fixed-point needed)
 */
 void systime_init(const RTC_DateTime_t* initial_dt) {
-    uint64_t initial_epoch = datetime_to_epoch(initial_dt);
-    g_epoch_time = initial_epoch;
+    uint64_t initial_epoch_sec = datetime_to_epoch(initial_dt);
+    g_epoch_ms = (uint32_t)(initial_epoch_sec * 1000);  /* Convert seconds to milliseconds */
     g_pps_t2 = LL_TIM_GetCounter(TIM2);
     g_tps_est = 1000000; /* TIM2 is free-running at 1 MHz */
-    update_scale(g_tps_est);
-    g_phase = 0;
+    g_phase_ticks = 0;  /* No phase initially */
+    g_cycle_count = 0;  /* No wraparounds yet */
     g_pps_count = 0;
     g_set_pending = false;
-    g_set_epoch = 0;
+    g_set_epoch_ms = 0;
 }
 
 /** @brief Request to set system time at next PPS event
-  * @param new_epoch New epoch time in seconds since 2000-01-01
+  * @param new_epoch_ms New epoch time in milliseconds since 2000-01-01
   * @retval None
   * @note Time will be set on next PPS event
-  * @note This function involves 64-bit arithmetic, which is not ideal.
 */
-void systime_request_update(uint64_t new_epoch) {
-    g_set_epoch = new_epoch;
+void systime_request_update(uint32_t new_epoch_ms) {
+    g_set_epoch_ms = new_epoch_ms;
     g_set_pending = true;
 }
 
@@ -100,8 +84,8 @@ void systime_request_update(uint64_t new_epoch) {
   * @param None
   * @retval None
   * @note Updates epoch time, phase, and ticks per second estimate
-  * @note This function avoids floating point and division in the ISR
-  * @note This function involves 64-bit arithmetic, which is not ideal.
+  * @note All operations are 32-bit (atomic on Cortex-M4, no 64-bit arithmetic)
+  * @note Detects g_epoch_ms wraparound and increments g_cycle_count
 */
 void systime_pps_event(void) {
     /* Sample the TIM2 counter */
@@ -117,74 +101,79 @@ void systime_pps_event(void) {
     }
     g_pps_t2 = t2_now; /* Update the global last-PPS TIM2 counter */
 
-    /* Update ticks-per-second estimate using an exponential moving average */
+    /* Update ticks-per-second estimate using an exponential moving average (32-bit) */
     if (g_pps_count > 0) {
         /** RATE_SHIFT = 4, so this averages over 16 PPS events.
           * Update the global TIM2 ticks per second estimate.
-          * This is equivalent to g_tps_est = ((g_tps_est * 15) + delta_t2) / 16; */
-        g_tps_est = ((g_tps_est * ( (1 << RATE_SHIFT) - 1)) + delta_t2) >> RATE_SHIFT;
-        
-        /* Update the scaling factor for microseconds per tick with the new estimate */
-        update_scale(g_tps_est);
+          * This is equivalent to g_tps_est = ((g_tps_est * 15) + delta_t2) / 16;
+          * All operations are 32-bit (no Q32 scaling needed). */
+        g_tps_est = ((g_tps_est * ((1 << RATE_SHIFT) - 1)) + delta_t2) >> RATE_SHIFT;
     }
 
-    /* Update global epoch time by 1 second */
-    g_epoch_time += 1;
+    /* Update global epoch time by 1 millisecond and detect wraparound */
+    g_epoch_ms += 1;
+    if (g_epoch_ms == 0) {
+        /* Wrapped from 0xFFFFFFFF to 0x00000000 - increment cycle counter */
+        g_cycle_count++;
+    }
 
-    /* Determine the phase error: Actual - Expected ticks since last PPS */
-    int64_t phase_error = (int64_t)delta_t2 - (int64_t)g_tps_est;
-    
-    /* Update the phase accumulator by adding the phase error. 
+    /* Determine the phase error: Actual - Expected ticks since last PPS (32-bit) */
+    int32_t phase_error = (int32_t)delta_t2 - (int32_t)g_tps_est;
+
+    /* Update the phase accumulator by adding the phase error.
      * Shift the phase error right by 3 bits to avoid correcting on small differences. */
-    g_phase += phase_error >> PHASE_SHIFT;
+    g_phase_ticks += phase_error >> PHASE_SHIFT;
 
-    /* Apply phase correction */
-    if (g_phase > (int64_t)g_tps_est / 2) {
+    /* Apply phase correction (all 32-bit comparisons) */
+    if (g_phase_ticks > (int32_t)g_tps_est / 2) {
         /* If phase exceeds half of the estimated ticks per second:
-         * Add a second to epoch time. 
+         * Add a millisecond to epoch time.
          * Subtract ticks per second estimate from the phase accumulator. */
-        g_phase -= g_tps_est;
-        g_epoch_time += 1;
-    } else if (g_phase < -(int64_t)g_tps_est / 2) {
+        g_phase_ticks -= g_tps_est;
+        g_epoch_ms += 1;
+        if (g_epoch_ms == 0) {
+            /* Wrapped again - increment cycle counter */
+            g_cycle_count++;
+        }
+    } else if (g_phase_ticks < -(int32_t)g_tps_est / 2) {
         /* If phase is less than negative half of the estimated ticks per second:
-         * Subtract 1 from epoch time. 
+         * Subtract 1 from epoch time.
          * Add ticks per second estimate to the phase accumulator */
-        g_phase += g_tps_est;
-        if (g_epoch_time > 0) {
-            g_epoch_time -= 1;
+        g_phase_ticks += g_tps_est;
+        if (g_epoch_ms > 0) {
+            g_epoch_ms -= 1;
         }
     }
 
     /* Handle pending time-set */
     if (g_set_pending) {
-        g_epoch_time = g_set_epoch;
+        g_epoch_ms = g_set_epoch_ms;
         g_set_pending = false;
 
         /* Reset the phase accumulator for new time. */
-        g_phase = 0;
+        g_phase_ticks = 0;
     }
 
     g_pps_count++;
 }
 
-/** @brief Get current time in microseconds since 2000-01-01 00:00:00
+/** @brief Get current time in milliseconds since 2000-01-01 00:00:00
   * @param None
-  * @retval Current time in microseconds (Epoch * 1,000,000 + sub-second microseconds)
+  * @retval Current time in milliseconds (Epoch_ms + sub-millisecond ticks/1000)
   * @note Combines RTC epoch time with TIM2 counter and phase adjustment
-  * @note Safe to call from ISR - preserves interrupt state
-  * @note This function involves 64-bit arithmetic, which is not ideal.
+  * @note Safe to call from ISR - preserves interrupt state via PRIMASK
+  * @note All 32-bit operations, simple division by 1000 (no Q32 fixed-point)
 */
-uint64_t time_us_now(void) {
+uint32_t time_ms_now(void) {
     /* Save and disable interrupts atomically - safe to call from ISR */
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
 
     uint32_t counter = LL_TIM_GetCounter(TIM2);
     uint32_t pps_t2 = g_pps_t2;
-    uint64_t epoch = g_epoch_time;
-    uint64_t scale = g_scale_q32;
-    uint64_t tps = g_tps_est;
-    int64_t phase = g_phase;
+    uint32_t epoch_ms = g_epoch_ms;
+    uint32_t tps = g_tps_est;
+    int32_t phase = g_phase_ticks;
 
     /* Restore previous interrupt state */
     __set_PRIMASK(primask);
@@ -192,11 +181,11 @@ uint64_t time_us_now(void) {
     /* Ticks since last PPS */
     int32_t delta = (int32_t)(counter - pps_t2);
 
-    /* Apply phase correction */
-    int64_t adjusted_delta = (int64_t)delta - phase;
+    /* Apply phase correction (all 32-bit) */
+    int32_t adjusted_delta = delta - phase;
     bool borrow = false;
 
-    /* If the adjusted delta is negative we need to borrow from the next second */
+    /* If the adjusted delta is negative we need to borrow from the next millisecond */
     if (adjusted_delta < 0) {
         /* If the ticks per second estimate is valid, add it to the adjusted delta */
         if (tps) {
@@ -204,93 +193,50 @@ uint64_t time_us_now(void) {
             borrow = true;
         } else {
             /* Fallback to 1 MHz if tps is zero */
-            adjusted_delta += 1000000ULL;
+            adjusted_delta += 1000000;
             borrow = true;
         }
     }
 
-    /* Sub-Second Adjustment using the Q32 scaling factor. First cast to 64-bit.
-     * Multiply the adjusted delta by the scale factor and shifts right by 32 bits.
-     * The right-shift by 32 bits converts from Q32 fixed-point to integer microseconds.
+    /* Sub-Millisecond adjustment: convert ticks to milliseconds via simple division.
+     * Divide by 1000 instead of complex Q32 multiply-shift.
      */
-    uint64_t sub_us = ((uint64_t)adjusted_delta * scale) >> 32;
+    uint32_t sub_ms = adjusted_delta / 1000;
 
-    /* Total seconds */
-    uint64_t sec = epoch - (borrow ? 1ULL : 0ULL); /* Check if we're borrowing from the next second */
+    /* Total milliseconds */
+    uint32_t ms = epoch_ms - (borrow ? 1 : 0);  /* Check if we're borrowing from the next millisecond */
 
-    /* Total time in microseconds */
-    return sec * 1000000ULL + sub_us;
+    /* Total time in milliseconds */
+    return ms + sub_ms;
 }
 
 /** @brief Get current time in seconds since 2000-01-01 00:00:00
   * @param None
   * @retval Current time in seconds
-  * @note Direct calculation avoiding microsecond conversion issues
-  * @note Safe to call from ISR - preserves interrupt state
-  * @note This function involves 64-bit arithmetic, which is not ideal.
+  * @note Simplified: just convert milliseconds to seconds (all 32-bit)
 */
-uint64_t time_s_now(void) {
-    /* Save and disable interrupts atomically - safe to call from ISR */
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
-
-    uint32_t counter = LL_TIM_GetCounter(TIM2);
-    uint32_t pps_t2 = g_pps_t2;
-    uint64_t epoch = g_epoch_time;
-    uint64_t tps = g_tps_est;
-    int64_t phase = g_phase;
-
-    /* Restore previous interrupt state */
-    __set_PRIMASK(primask);
-
-    /* Ticks since last PPS */
-    int32_t delta = (int32_t)(counter - pps_t2);
-
-    /* Apply phase correction - THIS INVOLVES 64-BIT ARITHMETIC IN THE ISR, NOT GOOD! */
-    int64_t adjusted_delta = (int64_t)delta - phase;
-
-    /* Check if we need to borrow from the next second */
-    bool borrow = false;
-    if (adjusted_delta < 0) {
-        if (tps) {
-            adjusted_delta += tps;
-            borrow = true;
-        } else {
-            adjusted_delta += 1000000ULL;
-            borrow = true;
-        }
-    }
-
-    /* Calculate seconds directly */
-    uint64_t sec = epoch - (borrow ? 1ULL : 0ULL);
-    
-    return sec;
+uint32_t time_s_now(void) {
+    return g_epoch_ms / 1000;  /* Convert milliseconds to seconds */
 }
 
-/** @brief Get formatted timestamp string for a given time in microseconds
-  * @param usecs Time in microseconds since 2000-01-01 00:00:00
-  * @retval Formatted timestamp string in format "MM-DD-YYYY,HH:MM:SS+MICROSECONDS"
+/** @brief Get formatted timestamp string for a given time in milliseconds
+  * @param ms Time in milliseconds since 2000-01-01 00:00:00
+  * @retval Formatted timestamp string in format "MM-DD-YYYY,HH:MM:SS+MILLISECONDS"
   * @note Returns static buffer, not thread-safe
 */
-const char* timestamp(uint64_t usecs) {
+const char* timestamp(uint32_t ms) {
     static char buffer[64];
-    
-    uint64_t total_seconds = usecs / 1000000ULL;
-    uint32_t microseconds = usecs % 1000000ULL;
-    
-    /* Normalize: ensure microseconds are in valid range */
-    while (microseconds >= 1000000) {
-        total_seconds += 1;
-        microseconds -= 1000000;
-    }
-    
-    RTC_DateTime_t dt = epoch_to_datetime(total_seconds);
 
-    snprintf(buffer, sizeof(buffer), "<%02d-%02d-%04d,%02d:%02d:%02d+%06u µs>",
+    uint32_t total_seconds = ms / 1000;
+    uint32_t milliseconds = ms % 1000;
+
+    RTC_DateTime_t dt = epoch_to_datetime((uint64_t)total_seconds);
+
+    snprintf(buffer, sizeof(buffer), "<%02d-%02d-%04d,%02d:%02d:%02d+%03u ms>",
              dt.months, dt.days, dt.years + 2000,
              dt.hours, dt.minutes, dt.seconds,
-             (unsigned int)microseconds);
-    
+             (unsigned int)milliseconds);
+
     return buffer;
 }
 
@@ -409,4 +355,22 @@ RTC_DateTime_t epoch_to_datetime(uint64_t epoch) {
     dt.seconds = remaining_seconds % 60;
 
     return dt;
+}
+
+/** @brief Get current cycle count (number of g_epoch_ms wraparounds)
+  * @param None
+  * @retval Current cycle count (increments when g_epoch_ms wraps from 0xFFFFFFFF to 0)
+  * @note Used for embedding cycle count in recorded data for timestamp reconstruction
+*/
+uint32_t systime_get_cycle_count(void) {
+    return g_cycle_count;
+}
+
+/** @brief Get the cycle count captured at recording start
+  * @param None
+  * @retval Cycle count at start of recording session
+  * @note Used by recorder module to track wraparounds during long deployments
+*/
+uint32_t systime_get_cycle_at_start(void) {
+    return g_cycle_count;  /* Return current cycle count (captured by recorder) */
 }

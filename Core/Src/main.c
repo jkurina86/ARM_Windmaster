@@ -195,7 +195,7 @@ int main(void)
               current_dt.months, current_dt.days, current_dt.years,
               current_dt.hours, current_dt.minutes, current_dt.seconds);
 
-  shell_printf("Current timestamp: %s\r\n", timestamp(time_us_now()));
+  shell_printf("Current timestamp: %s\r\n", timestamp(time_ms_now()));
 
   /* Debug: Check PPS count */
   uint64_t test_pps_count = systime_get_pps_count();

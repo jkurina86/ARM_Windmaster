@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    vectornav.c
   * @brief   VectorNav GPS/IMU functions
-  * @note    Placeholder for IMU functionality
+  * @note    Handles communication with the VectorNav VN-300 IMU via UART and DMA
   ******************************************************************************
   */
 
@@ -222,8 +222,8 @@ bool vn_drain_and_queue(void) {
     memcpy(&latest_packet, tmp, copy_len);
 
     /* Get timestamp and queue the packet for recording */
-    uint64_t timestamp_us = time_us_now();
-    recorder_queue_vn(&latest_packet, timestamp_us);
+    uint32_t timestamp_ms = time_ms_now();
+    recorder_queue_vn(&latest_packet, timestamp_ms);
 
     /* Advance the read pointer */
     rd = (uint16_t)((rd + PACKET_SIZE) & MASK);
