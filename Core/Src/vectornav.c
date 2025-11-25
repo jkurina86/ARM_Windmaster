@@ -222,8 +222,7 @@ bool vn_drain_and_queue(void) {
     memcpy(&latest_packet, tmp, copy_len);
 
     /* Get timestamp and queue the packet for recording */
-    uint32_t timestamp_ms = time_ms_now();
-    recorder_queue_vn(&latest_packet, timestamp_ms);
+    recorder_queue_vn(&latest_packet);
 
     /* Advance the read pointer */
     rd = (uint16_t)((rd + PACKET_SIZE) & MASK);

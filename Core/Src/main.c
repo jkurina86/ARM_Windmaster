@@ -189,17 +189,18 @@ int main(void)
   systime_init(&initial_dt);
 
   /* print current system time from systime */
+  uint32_t full_epoch_sec = time_s_now();  /* time_s_now() already returns full epoch seconds */
   RTC_DateTime_t current_dt;
-  current_dt = epoch_to_datetime(time_s_now());
+  current_dt = epoch_to_datetime(full_epoch_sec);
   shell_printf("System time initialized to: %02d-%02d-20%02d %02d:%02d:%02d\r\n",
               current_dt.months, current_dt.days, current_dt.years,
               current_dt.hours, current_dt.minutes, current_dt.seconds);
 
-  shell_printf("Current timestamp: %s\r\n", timestamp(time_ms_now()));
+  shell_printf("Current timestamp: %s\r\n", timestamp(time_s_now()));
 
   /* Debug: Check PPS count */
-  uint64_t test_pps_count = systime_get_pps_count();
-  shell_printf("PPS events since init: %u\r\n", (uint32_t)test_pps_count);
+  uint32_t test_pps_count = systime_get_pps_count();
+  shell_printf("PPS events since init: %u\r\n", test_pps_count);
 
   /* Debug: Wait a few seconds to gather some PPS events */
   shell_printf("Waiting 3 seconds to gather PPS events...\r\n");
@@ -207,7 +208,7 @@ int main(void)
 
   /* Debug: Check PPS count again */
   test_pps_count = systime_get_pps_count();
-  shell_printf("PPS events since last check: %u\r\n", (uint32_t)test_pps_count);
+  shell_printf("PPS events since last check: %u\r\n", test_pps_count);
   
   /* Debug: Check if systime has lock and show estimated frequency */
   if (systime_have_lock()) {

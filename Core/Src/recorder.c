@@ -43,7 +43,7 @@ static bool recording = false;
 static uint32_t record_index = 0;
 static FIL log_fil;  // File object for logging
 
-char filename[64];
+char filename[128];
 
 /* Statistics tracking */
 static uint32_t wm_drops = 0;
@@ -53,7 +53,7 @@ static uint8_t vn_queue_max = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void flip_buffers(void);
-static Recorder_Data_t build_record(VN_Packet_t *vn_data, WM_Packet_t *wm_data);
+static Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntry_t *wm_entry);
 static uint8_t get_queue_count(uint8_t head, uint8_t tail, uint8_t len);
 
 
@@ -78,6 +78,12 @@ void recorder_init(void) {
 }
 
 void recorder_start(void) {
+  /* Check if the filesystem is mounted */
+  if (!filesystem_is_mounted()) {
+    shell_printf("[REC] ERROR: Filesystem not mounted! Aborting.\r\n");
+    return;
+  }
+
   /* Start recording */
   recording = true;
   record_index = 0;
@@ -87,9 +93,8 @@ void recorder_start(void) {
   flush_pending = false;
 
   /* Generate log filename with timestamp: YYYY-MM-DD-HH-MM-SS.bin */
-  uint32_t now_ms = time_ms_now();
-  uint32_t now_s = now_ms / 1000;
-  RTC_DateTime_t dt = epoch_to_datetime((uint64_t)now_s);
+  uint32_t full_epoch_sec = time_s_now();
+  RTC_DateTime_t dt = epoch_to_datetime(full_epoch_sec);
   snprintf(filename, sizeof(filename), "%04d-%02d-%02d-%02d-%02d-%02d.bin",
            dt.years + 2000, dt.months, dt.days,
            dt.hours, dt.minutes, dt.seconds);
@@ -149,7 +154,7 @@ void recorder_stop(void) {
  * @param t_ms: Timestamp in milliseconds
  * @retval None
   */
-void recorder_queue_wm(const WM_Packet_t *pkt, uint32_t t_ms)
+void recorder_queue_wm(const WM_Packet_t *pkt)
 {
   uint8_t next = (wm_q_head + 1) & (WM_Q_LEN - 1);
   if (next == wm_q_tail) {
@@ -159,7 +164,6 @@ void recorder_queue_wm(const WM_Packet_t *pkt, uint32_t t_ms)
   }
 
   wm_queue[wm_q_head].wm_packet = *pkt;
-  wm_queue[wm_q_head].timestamp_ms = t_ms;
 
   wm_q_head = next;
 
@@ -175,7 +179,7 @@ void recorder_queue_wm(const WM_Packet_t *pkt, uint32_t t_ms)
  * @param t_ms: Timestamp in milliseconds
  * @retval None
   */
-void recorder_queue_vn(const VN_Packet_t *pkt, uint32_t t_ms)
+void recorder_queue_vn(const VN_Packet_t *pkt)
 {
   uint8_t next = (vn_q_head + 1) & (VN_Q_LEN - 1);
   if (next == vn_q_tail) {
@@ -184,7 +188,6 @@ void recorder_queue_vn(const VN_Packet_t *pkt, uint32_t t_ms)
   }
 
   vn_queue[vn_q_head].vn_packet = *pkt;
-  vn_queue[vn_q_head].timestamp_ms = t_ms;
 
   vn_q_head = next;
 
@@ -217,9 +220,7 @@ void recorder_service(void) {
     VN_QueueEntry_t *vn = &vn_queue[vn_q_tail];
 
     /* Pair the WindMaster and VectorNav data */
-    Recorder_Data_t record = build_record(&vn->vn_packet, &wm->wm_packet);
-
-    /* Timestamp is provided by VectorNav GPS time (nanoseconds since 1980-01-01) */
+    Recorder_Data_t record = build_record(vn, wm);
 
     /* Copy the record into the active buffer at the current position */
     Recorder_Data_t* dest = (Recorder_Data_t*)(active_buffer + (active_buf_index * sizeof(Recorder_Data_t)));
@@ -281,12 +282,18 @@ static void flip_buffers(void) {
   * @param  wm_data: Pointer to WM_Packet_t structure with WindMaster data
   * @retval Recorder_Data_t: Filled recorder data structure
   */
-Recorder_Data_t build_record(VN_Packet_t *vn_data, WM_Packet_t *wm_data) {
-    Recorder_Data_t record;
-    memset(&record, 0, sizeof(Recorder_Data_t));
+Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntry_t *wm_entry) {
+  Recorder_Data_t record;
+  memset(&record, 0, sizeof(Recorder_Data_t));
 
-    record.magic_number = 0xFACEFACE; // Unique identifier for the start of a record
-    record.log_index = record_index++;
+  record.magic_number = 0xFACEFACE; // Unique identifier for the start of a record
+  record.log_index = record_index++;
+  
+  /* Use the systime snapshot for accurate timestamping */
+  systime_snapshot(&record.epoch_seconds, &record.ms);
+
+  const VN_Packet_t *vn_data = &vn_entry->vn_packet;
+  const WM_Packet_t *wm_data = &wm_entry->wm_packet;
 
     record.timegps = vn_data->timegps;
     record.yaw = vn_data->yaw;

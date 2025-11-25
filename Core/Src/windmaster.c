@@ -163,9 +163,8 @@ bool wm_drain_and_queue(void)
         size_t copy_len = sizeof(WM_Packet_t) < PACKET_SIZE ? sizeof(WM_Packet_t) : (size_t)PACKET_SIZE;
         memcpy(&latest_packet, pkt, copy_len);
 
-        /* Get timestamp and queue the packet for recording */
-        uint32_t timestamp_ms = time_ms_now();
-        recorder_queue_wm(&latest_packet, timestamp_ms);
+        /* Queue the packet for recording with current system timestamp */
+        recorder_queue_wm(&latest_packet);
 
         /* Advance by exactly one packet */
         rd    = (uint16_t)((rd + PACKET_SIZE) & MASK);

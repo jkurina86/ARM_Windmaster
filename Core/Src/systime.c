@@ -8,21 +8,22 @@
   */
 #include "systime.h"
 #include "stm32l4xx_ll_tim.h"
+#include <stdbool.h>
 
 /* Internal State (Global) -------------------------------------------------- */
-static volatile uint32_t g_epoch_ms = 0;                            /* Milliseconds since 2000-01-01 00:00:00 (wraps every 49.7 days) */
+static volatile uint32_t g_epoch_sec = 0;                           /* Seconds since 2000-01-01 00:00:00 (wraps every ~136 years) */
+static volatile uint32_t g_ms = 0;                                  /* Milliseconds offset within the current second (includes phase corrections) */
 static volatile uint32_t g_pps_t2 = 0;                              /* TIM2 counter at last PPS */
 static volatile uint32_t g_tps_est = 1000000;                       /* TIM2 ticks per second estimate (Nominal: 1 MHz) */
 static volatile int32_t g_phase_ticks = 0;                          /* Phase offset from the RTC Pulses in ticks */
 static volatile uint32_t g_pps_count = 0;                           /* Number of PPS events seen */
-static volatile uint32_t g_cycle_count = 0;                         /* Number of times g_epoch_ms wrapped from 0xFFFFFFFF to 0 */
 static volatile bool g_set_pending = false;                         /* Request to set time on next PPS */
-static volatile uint32_t g_set_epoch_ms = 0;                        /* Epoch time (in ms) to set on next PPS */
+static volatile uint32_t g_set_epoch_sec = 0;                       /* Pending epoch seconds to apply on next PPS */
+static volatile uint32_t g_set_ms = 0;                              /* Pending millisecond offset to apply on next PPS */
 
 /* Private defines -----------------------------------------------------------*/
 #define RATE_SHIFT 4
 #define PHASE_SHIFT 3
-#define EPOCH_2000_OFFSET 946684800ULL /* RTC epoch start (for conversion to UNIX Epoch) */
 
 /* Private inline helper functions -------------------------------------------*/
 
@@ -59,15 +60,16 @@ static inline uint32_t month_offset(uint32_t m, bool leap){
   * @note Converts seconds to milliseconds (no Q32 fixed-point needed)
 */
 void systime_init(const RTC_DateTime_t* initial_dt) {
-    uint64_t initial_epoch_sec = datetime_to_epoch(initial_dt);
-    g_epoch_ms = (uint32_t)(initial_epoch_sec * 1000);  /* Convert seconds to milliseconds */
+    uint32_t initial_epoch_sec = datetime_to_epoch(initial_dt);
+    g_epoch_sec = initial_epoch_sec;
+    g_ms = 0;
     g_pps_t2 = LL_TIM_GetCounter(TIM2);
     g_tps_est = 1000000; /* TIM2 is free-running at 1 MHz */
     g_phase_ticks = 0;  /* No phase initially */
-    g_cycle_count = 0;  /* No wraparounds yet */
     g_pps_count = 0;
     g_set_pending = false;
-    g_set_epoch_ms = 0;
+    g_set_epoch_sec = 0;
+    g_set_ms = 0;
 }
 
 /** @brief Request to set system time at next PPS event
@@ -76,16 +78,16 @@ void systime_init(const RTC_DateTime_t* initial_dt) {
   * @note Time will be set on next PPS event
 */
 void systime_request_update(uint32_t new_epoch_ms) {
-    g_set_epoch_ms = new_epoch_ms;
+    g_set_epoch_sec = new_epoch_ms / 1000U;
+    g_set_ms = new_epoch_ms % 1000U;
     g_set_pending = true;
 }
 
 /** @brief Handle PPS event from inside the TIM3 interrupt
-  * @param None
-  * @retval None
-  * @note Updates epoch time, phase, and ticks per second estimate
-  * @note All operations are 32-bit (atomic on Cortex-M4, no 64-bit arithmetic)
-  * @note Detects g_epoch_ms wraparound and increments g_cycle_count
+    * @param None
+    * @retval None
+    * @note Updates epoch seconds, millisecond accumulator, phase, and ticks-per-second estimate
+    * @note All operations are 32-bit (atomic on Cortex-M4, no 64-bit arithmetic)
 */
 void systime_pps_event(void) {
     /* Sample the TIM2 counter */
@@ -105,17 +107,14 @@ void systime_pps_event(void) {
     if (g_pps_count > 0) {
         /** RATE_SHIFT = 4, so this averages over 16 PPS events.
           * Update the global TIM2 ticks per second estimate.
-          * This is equivalent to g_tps_est = ((g_tps_est * 15) + delta_t2) / 16;
-          * All operations are 32-bit (no Q32 scaling needed). */
+          * This is equivalent to g_tps_est = ((g_tps_est * 15) + delta_t2) / 16; 
+          */
         g_tps_est = ((g_tps_est * ((1 << RATE_SHIFT) - 1)) + delta_t2) >> RATE_SHIFT;
     }
 
-    /* Update global epoch time by 1 millisecond and detect wraparound */
-    g_epoch_ms += 1;
-    if (g_epoch_ms == 0) {
-        /* Wrapped from 0xFFFFFFFF to 0x00000000 - increment cycle counter */
-        g_cycle_count++;
-    }
+    /* Advance epoch by one second and reset sub-millisecond accumulator */
+    g_epoch_sec += 1U;
+    g_ms = 0U;
 
     /* Determine the phase error: Actual - Expected ticks since last PPS (32-bit) */
     int32_t phase_error = (int32_t)delta_t2 - (int32_t)g_tps_est;
@@ -124,30 +123,32 @@ void systime_pps_event(void) {
      * Shift the phase error right by 3 bits to avoid correcting on small differences. */
     g_phase_ticks += phase_error >> PHASE_SHIFT;
 
-    /* Apply phase correction (all 32-bit comparisons) */
+    /* Apply phase correction */
     if (g_phase_ticks > (int32_t)g_tps_est / 2) {
-        /* If phase exceeds half of the estimated ticks per second:
-         * Add a millisecond to epoch time.
-         * Subtract ticks per second estimate from the phase accumulator. */
+        /* Phase exceeds half a second worth of ticks: add 1 ms to epoch */
         g_phase_ticks -= g_tps_est;
-        g_epoch_ms += 1;
-        if (g_epoch_ms == 0) {
-            /* Wrapped again - increment cycle counter */
-            g_cycle_count++;
+        g_ms += 1U;
+        if (g_ms >= 1000U) {
+            g_ms -= 1000U;
+            g_epoch_sec += 1U;
         }
     } else if (g_phase_ticks < -(int32_t)g_tps_est / 2) {
-        /* If phase is less than negative half of the estimated ticks per second:
-         * Subtract 1 from epoch time.
-         * Add ticks per second estimate to the phase accumulator */
+        /* Phase is less than negative half: subtract 1 ms from epoch */
         g_phase_ticks += g_tps_est;
-        if (g_epoch_ms > 0) {
-            g_epoch_ms -= 1;
+        if (g_ms > 0U) {
+            g_ms -= 1U;
+        } else {
+            g_ms = 999U;
+            if (g_epoch_sec > 0U) {
+                g_epoch_sec -= 1U;
+            }
         }
     }
 
     /* Handle pending time-set */
     if (g_set_pending) {
-        g_epoch_ms = g_set_epoch_ms;
+        g_epoch_sec = g_set_epoch_sec;
+        g_ms = g_set_ms;
         g_set_pending = false;
 
         /* Reset the phase accumulator for new time. */
@@ -157,85 +158,37 @@ void systime_pps_event(void) {
     g_pps_count++;
 }
 
-/** @brief Get current time in milliseconds since 2000-01-01 00:00:00
-  * @param None
-  * @retval Current time in milliseconds (Epoch_ms + sub-millisecond ticks/1000)
-  * @note Combines RTC epoch time with TIM2 counter and phase adjustment
-  * @note Safe to call from ISR - preserves interrupt state via PRIMASK
-  * @note All 32-bit operations, simple division by 1000 (no Q32 fixed-point)
-*/
-uint32_t time_ms_now(void) {
-    /* Save and disable interrupts atomically - safe to call from ISR */
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
-
-    uint32_t counter = LL_TIM_GetCounter(TIM2);
-    uint32_t pps_t2 = g_pps_t2;
-    uint32_t epoch_ms = g_epoch_ms;
-    uint32_t tps = g_tps_est;
-    int32_t phase = g_phase_ticks;
-
-    /* Restore previous interrupt state */
-    __set_PRIMASK(primask);
-
-    /* Ticks since last PPS */
-    int32_t delta = (int32_t)(counter - pps_t2);
-
-    /* Apply phase correction (all 32-bit) */
-    int32_t adjusted_delta = delta - phase;
-    bool borrow = false;
-
-    /* If the adjusted delta is negative we need to borrow from the next millisecond */
-    if (adjusted_delta < 0) {
-        /* If the ticks per second estimate is valid, add it to the adjusted delta */
-        if (tps) {
-            adjusted_delta += tps;
-            borrow = true;
-        } else {
-            /* Fallback to 1 MHz if tps is zero */
-            adjusted_delta += 1000000;
-            borrow = true;
-        }
-    }
-
-    /* Sub-Millisecond adjustment: convert ticks to milliseconds via simple division.
-     * Divide by 1000 instead of complex Q32 multiply-shift.
-     */
-    uint32_t sub_ms = adjusted_delta / 1000;
-
-    /* Total milliseconds */
-    uint32_t ms = epoch_ms - (borrow ? 1 : 0);  /* Check if we're borrowing from the next millisecond */
-
-    /* Total time in milliseconds */
-    return ms + sub_ms;
-}
-
 /** @brief Get current time in seconds since 2000-01-01 00:00:00
   * @param None
   * @retval Current time in seconds
   * @note Simplified: just convert milliseconds to seconds (all 32-bit)
 */
 uint32_t time_s_now(void) {
-    return g_epoch_ms / 1000;  /* Convert milliseconds to seconds */
+    return g_epoch_sec;
 }
 
-/** @brief Get formatted timestamp string for a given time in milliseconds
-  * @param ms Time in milliseconds since 2000-01-01 00:00:00
-  * @retval Formatted timestamp string in format "MM-DD-YYYY,HH:MM:SS+MILLISECONDS"
+/** @brief Get current time in milliseconds since 2000-01-01 00:00:00
+  * @param None
+  * @retval Current time in milliseconds
+  * @note Combines seconds and milliseconds
+*/
+uint64_t time_ms_now(void) {
+    return ((uint64_t)g_epoch_sec * 1000ULL) + (uint64_t)g_ms;
+}
+
+/** @brief Get formatted timestamp string for a given time in seconds
+  * @param s Time in seconds since 2000-01-01 00:00:00
+  * @retval Formatted timestamp string in format "MM-DD-YYYY,HH:MM:SS"
   * @note Returns static buffer, not thread-safe
 */
-const char* timestamp(uint32_t ms) {
+const char* timestamp(uint32_t s) {
     static char buffer[64];
 
-    uint32_t total_seconds = ms / 1000;
-    uint32_t milliseconds = ms % 1000;
+    RTC_DateTime_t dt = epoch_to_datetime(s);
 
-    RTC_DateTime_t dt = epoch_to_datetime((uint64_t)total_seconds);
-
-    snprintf(buffer, sizeof(buffer), "<%02d-%02d-%04d,%02d:%02d:%02d+%03u ms>",
+    snprintf(buffer, sizeof(buffer), "<%02d-%02d-%04d,%02d:%02d:%02d>",
              dt.months, dt.days, dt.years + 2000,
-             dt.hours, dt.minutes, dt.seconds,
-             (unsigned int)milliseconds);
+             dt.hours, dt.minutes, dt.seconds);
 
     return buffer;
 }
@@ -250,11 +203,11 @@ int32_t systime_ppm_estimate(void) {
     if (g_tps_est == 1000000) {
         return 0;
     }
-    /* Calculate PPM deviation from 1 MHz */
-    int64_t diff = (int64_t)g_tps_est - 1000000LL;
-    int64_t numerator = diff * 1000000LL;
-    int64_t ppm = numerator / 1000000LL;
-    return (int32_t)ppm;
+    /* Calculate PPM deviation from 1 MHz using 32-bit arithmetic */
+    /* PPM = (tps_est - 1000000) / 1000 (simplified, loses some precision but adequate) */
+    int32_t diff = (int32_t)g_tps_est - 1000000;
+    int32_t ppm = diff / 1000;
+    return ppm;
 }
 
 /** @brief Check if the system time has a valid lock
@@ -270,16 +223,17 @@ bool systime_have_lock(void) {
   * @param None
   * @retval Number of PPS events seen since initialization
 */
-uint64_t systime_get_pps_count(void) {
+uint32_t systime_get_pps_count(void) {
     return g_pps_count;
 }
 
 /** @brief Convert RTC date/time to epoch time (seconds since 2000-01-01)
  *  @param dt Pointer to RTC_DateTime_t structure
- *  @retval Epoch time in seconds since 2000-01-01 00:00:00
+ *  @retval Epoch time in seconds since 2000-01-01 00:00:00 (as uint32_t, wraps every ~136 years)
  *  @note Assumes valid date/time in dt
+ *  @note Uses only 32-bit arithmetic - safe for dates 2000-2136
  */
-uint64_t datetime_to_epoch(const RTC_DateTime_t* dt) {
+uint32_t datetime_to_epoch(const RTC_DateTime_t* dt) {
     uint32_t year = dt->years + 2000;
     uint32_t month = dt->months;
     uint32_t day = dt->days;
@@ -287,13 +241,28 @@ uint64_t datetime_to_epoch(const RTC_DateTime_t* dt) {
     uint32_t minute = dt->minutes;
     uint32_t second = dt->seconds;
 
-    /* Days since 2000-01-01 */
-    uint32_t days = (year - 2000) * 365 + (year - 2000) / 4 - (year - 2000) / 100 + (year - 2000) / 400;
+    /* Calculate days since 2000-01-01 using 32-bit only arithmetic */
+    /* Days = (year-2000)*365 + leap_day_count + day_of_year */
+    uint32_t years_since_base = year - 2000;
+
+    /* Count leap days that have fully occurred before this date */
+    uint32_t leaps_before_year = (year - 1) / 4 - (year - 1) / 100 + (year - 1) / 400;
+    uint32_t leaps_before_1999 = 1999 / 4 - 1999 / 100 + 1999 / 400;
+    uint32_t leap_count = leaps_before_year - leaps_before_1999;
+    if (is_leap(year) && month <= 2) {
+        /* Current leap day has not happened yet in this year */
+        leap_count--;
+    }
+
+    uint32_t days = years_since_base * 365 + leap_count;
+
+    /* Add days for months in current year */
     days += month_offset(month, is_leap(year));
+    /* Add days within current month (day is 1-indexed) */
     days += day - 1;
 
-    /* Total seconds, cast to uint64_t */
-    uint64_t epoch = (uint64_t)days * 86400ULL + (uint64_t)hour * 3600ULL + (uint64_t)minute * 60ULL + (uint64_t)second;
+    /* Total seconds - all 32-bit operations */
+    uint32_t epoch = days * 86400U + hour * 3600U + minute * 60U + second;
     return epoch;
 }
 
@@ -302,11 +271,11 @@ uint64_t datetime_to_epoch(const RTC_DateTime_t* dt) {
  *  @retval RTC_DateTime_t structure with converted date/time
  *  @note Handles leap years and valid ranges
  */
-RTC_DateTime_t epoch_to_datetime(uint64_t epoch) {
+RTC_DateTime_t epoch_to_datetime(uint32_t epoch) {
     RTC_DateTime_t dt;
-    uint64_t total_seconds = epoch;
-    uint32_t days = total_seconds / 86400ULL;
-    uint32_t remaining_seconds = total_seconds % 86400ULL;
+    uint32_t total_seconds = epoch;
+    uint32_t days = total_seconds / 86400U;
+    uint32_t remaining_seconds = total_seconds % 86400U;
 
     /* Find year */
     uint32_t year = 2000;
@@ -346,7 +315,7 @@ RTC_DateTime_t epoch_to_datetime(uint64_t epoch) {
         days = 30; /* Clamp to end of December */
     }
     dt.months = month;
-    dt.days = days + 1; /* Index-1 offset */
+    dt.days = days + 1; /* Convert from 0-indexed to 1-indexed */
 
     /* Time components */
     dt.hours = remaining_seconds / 3600;
@@ -357,20 +326,51 @@ RTC_DateTime_t epoch_to_datetime(uint64_t epoch) {
     return dt;
 }
 
-/** @brief Get current cycle count (number of g_epoch_ms wraparounds)
-  * @param None
-  * @retval Current cycle count (increments when g_epoch_ms wraps from 0xFFFFFFFF to 0)
-  * @note Used for embedding cycle count in recorded data for timestamp reconstruction
-*/
-uint32_t systime_get_cycle_count(void) {
-    return g_cycle_count;
-}
+/** @brief Snapshot current epoch seconds and milliseconds
+ *  @param epoch_seconds Pointer to store epoch seconds since 2000-01-01 00:00:00
+ *  @param ms Pointer to store milliseconds within current second (0-999)
+ *  @retval None
+ *  @note Milliseconds are calculated from TIM2 ticks elapsed since last PPS
+ */
+void systime_snapshot(uint32_t *epoch_seconds, uint16_t *ms) {
+    if (epoch_seconds == NULL || ms == NULL) {
+        return;
+    }
 
-/** @brief Get the cycle count captured at recording start
-  * @param None
-  * @retval Cycle count at start of recording session
-  * @note Used by recorder module to track wraparounds during long deployments
-*/
-uint32_t systime_get_cycle_at_start(void) {
-    return g_cycle_count;  /* Return current cycle count (captured by recorder) */
+    /* Capture volatile globals with interrupts disabled for consistency */
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    
+    uint32_t t2_now = LL_TIM_GetCounter(TIM2);
+    uint32_t pps_t2_local = g_pps_t2;
+    uint32_t tps_est_local = g_tps_est;
+    uint32_t ms_local = g_ms;
+    uint32_t epoch_local = g_epoch_sec;
+    
+    __set_PRIMASK(primask);  /* Re-enable interrupts ASAP */
+    
+    /* Calculate ticks since last PPS (handle wraparound) */
+    uint32_t delta_ticks;
+    if (t2_now >= pps_t2_local) {
+        delta_ticks = t2_now - pps_t2_local;
+    } else {
+        delta_ticks = 0xFFFFFFFF - pps_t2_local + t2_now + 1;
+    }
+    
+    /* Convert ticks to milliseconds: ms = (delta_ticks * 1000) / tps_est */
+    /* tps_est is ~1000000, so tps_est/1000 = ~1000 ticks per ms */
+    uint32_t ticks_per_ms = tps_est_local / 1000U;
+    uint32_t elapsed_ms = delta_ticks / ticks_per_ms;
+    
+    /* Add any phase correction offset stored in g_ms */
+    uint32_t total_ms = ms_local + elapsed_ms;
+    
+    /* Handle second rollover if elapsed time exceeds 1 second */
+    if (total_ms >= 1000U) {
+        total_ms -= 1000U;
+        epoch_local += 1U;
+    }
+    
+    *epoch_seconds = epoch_local;
+    *ms = (uint16_t)total_ms;
 }

@@ -25,8 +25,8 @@ class RecorderData(NamedTuple):
     """128-byte record structure matching Recorder_Data_t"""
     magic_number: int       # uint32_t
     log_index: int          # uint32_t
-    cycle_count: int        # uint8_t (NEW: tracks g_epoch_ms wraparounds)
-    timestamp_ms: int       # uint32_t (NEW: timestamp in milliseconds since 2000-01-01)
+    epoch_seconds: int      # uint32_t (seconds since 2000-01-01)
+    ms: int                 # uint16_t (milliseconds fraction within current second)
     timegps: int            # uint64_t (nanoseconds since GPS epoch 1980-01-01)
     yaw: float              # float
     pitch: float            # float
@@ -53,12 +53,43 @@ class RecorderData(NamedTuple):
 
 # Struct format string (Little Endian):
 # I = uint32_t, Q = uint64_t, f = float, d = double, h = int16_t, B = uint8_t
-# Format: magic(I) index(I) cycle(B) timestamp_ms(I) timegps(Q) YPR(3f) Gyro(3f) Lat/Lon/Alt(3d) Vel(3f) Acc(3f) WindMaster(5h)
-RECORD_FORMAT = '<IIBIQffffffdddffffffhhhhh'
+# Format: magic(I) index(I) epoch(I) ms(H) pad(2x) timegps(Q) YPR(3f) Gyro(3f) Lat/Lon/Alt(3d) Vel(3f) Acc(3f) WindMaster(5h)
+RECORD_FORMAT = '<IIIHxxQffffffdddffffffhhhhh'
 RECORD_SIZE = 128
-PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # Should be 99 bytes (29 bytes padding at end)
+PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # 106 bytes parsed (22 bytes padding at end)
 
 MAGIC_NUMBER = 0xFACEFACE
+# GPS epoch is January 6, 1980 (not January 1!)
+GPS_EPOCH = datetime(1980, 1, 6, tzinfo=timezone.utc)
+# Current GPS-UTC leap second offset (as of 2017, 18 leap seconds)
+GPS_LEAP_SECONDS = 18
+NS_PER_SECOND = 1_000_000_000
+
+
+def decode_timegps_ns(timegps_ns: int):
+    """Convert VectorNav timegps nanoseconds into datetime and components.
+    
+    GPS time started on January 6, 1980 and does not include leap seconds.
+    To convert to UTC, we subtract the accumulated leap seconds.
+    """
+    seconds, fractional_ns = divmod(timegps_ns, NS_PER_SECOND)
+    # Subtract leap seconds to convert GPS time to UTC
+    utc_seconds = seconds - GPS_LEAP_SECONDS
+    # datetime only tracks microseconds; keep remaining nanoseconds separately
+    dt = GPS_EPOCH + timedelta(seconds=utc_seconds, microseconds=fractional_ns // 1000)
+    remaining_ns = fractional_ns % 1000
+    components = {
+        'year': dt.year,
+        'month': dt.month,
+        'day': dt.day,
+        'hour': dt.hour,
+        'minute': dt.minute,
+        'second': dt.second,
+        'millisecond': dt.microsecond // 1000,
+        'microsecond': dt.microsecond % 1000,
+        'nanosecond': remaining_ns,
+    }
+    return dt, components
 
 
 def parse_record(data: bytes) -> RecorderData:
@@ -83,11 +114,10 @@ def validate_record(record: RecorderData, index: int) -> List[str]:
         warnings.append(f"Record {index}: Index mismatch (expected {index}, got {record.log_index})")
 
     # Check for reasonable timestamp (not zero and not absurdly large)
-    # timestamp_ms is milliseconds since 2000-01-01, max ~4.3B (49.7 days per cycle)
-    if record.timestamp_ms == 0 and record.cycle_count == 0:
-        warnings.append(f"Record {index}: Zero timestamp with zero cycle count")
-    elif record.timestamp_ms > 0xFFFFFFFF:  # Should never happen with uint32_t
-        warnings.append(f"Record {index}: Unrealistic timestamp_ms {record.timestamp_ms}")
+    if record.ms >= 1000:
+        warnings.append(f"Record {index}: ms out of range ({record.ms})")
+    if record.epoch_seconds == 0 and record.ms == 0:
+        warnings.append(f"Record {index}: Zero timestamp")
     
     return warnings
 
@@ -157,20 +187,20 @@ def print_statistics(records: List[RecorderData]):
     
     print(f"Total records: {len(records)}")
 
-    # Time span - using system timestamps (with cycle count for absolute time)
+    # Time span - using system timestamps reconstructed from epoch seconds
     first_record = records[0]
     last_record = records[-1]
 
-    # Reconstruct absolute milliseconds using cycle_count
-    first_time_ms = (first_record.cycle_count << 32) | first_record.timestamp_ms
-    last_time_ms = (last_record.cycle_count << 32) | last_record.timestamp_ms
+    # Reconstruct absolute milliseconds from epoch seconds + ms
+    first_time_ms = (first_record.epoch_seconds * 1000) + first_record.ms
+    last_time_ms = (last_record.epoch_seconds * 1000) + last_record.ms
 
     duration_ms = last_time_ms - first_time_ms
     duration_s = duration_ms / 1000.0
 
-    print(f"First timestamp: {first_record.timestamp_ms} ms (cycle {first_record.cycle_count})")
-    print(f"Last timestamp:  {last_record.timestamp_ms} ms (cycle {last_record.cycle_count})")
-    print(f"Absolute time range: {first_time_ms}-{last_time_ms} ms")
+    print(f"First timestamp: {first_record.epoch_seconds}s + {first_record.ms} ms")
+    print(f"Last timestamp:  {last_record.epoch_seconds}s + {last_record.ms} ms")
+    print(f"Absolute time range (ms): {first_time_ms}-{last_time_ms}")
     print(f"Duration: {duration_s:.2f} seconds ({duration_s/60:.2f} minutes)")
 
     # Sample rate
@@ -211,7 +241,7 @@ def export_csv(records: List[RecorderData], output_path: Path):
         print("No records to export")
         return
 
-    fieldnames = RecorderData._fields[:-1]  # Exclude padding
+    fieldnames = RecorderData._fields
 
     with open(output_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
@@ -221,11 +251,9 @@ def export_csv(records: List[RecorderData], output_path: Path):
 
         # Data
         for record in records:
-            writer.writerow(record[:-1])  # Exclude padding
+            writer.writerow(record)
 
     print(f"\n[OK] Exported {len(records)} records to {output_path}")
-
-
 def export_txt(records: List[RecorderData], output_path: Path):
     """Export records to human-readable text file"""
     if not records:
@@ -244,31 +272,42 @@ def export_txt(records: List[RecorderData], output_path: Path):
             f.write(f"Record #{i} (Index: {record.log_index})\n")
             f.write("-" * 80 + "\n")
 
-            # Timestamp - milliseconds since 2000-01-01 with cycle counter for absolute time
-            # cycle_count increments when timestamp_ms wraps from 0xFFFFFFFF to 0
-            absolute_ms = (record.cycle_count << 32) | record.timestamp_ms
+            # Timestamp - milliseconds since 2000-01-01 reconstructed via epoch seconds
+            absolute_ms = (record.epoch_seconds * 1000) + record.ms
+            _, gps_components = decode_timegps_ns(record.timegps)
 
-            # Convert milliseconds since 2000-01-01 to Unix timestamp
-            epoch_2000_offset = 946684800  # Seconds between Unix epoch (1970) and 2000-01-01
-            total_seconds = (absolute_ms // 1000) + epoch_2000_offset
-            milliseconds = absolute_ms % 1000
-
-            # Create datetime in UTC, then convert to local timezone
-            dt_utc = datetime.fromtimestamp(total_seconds, tz=timezone.utc)
-            dt = dt_utc.astimezone()
+            # Convert epoch seconds since 2000-01-01 to datetime
+            # Note: RTC stores local time, so epoch_seconds is already local time
+            epoch_2000 = datetime(2000, 1, 1, 0, 0, 0)
+            dt = epoch_2000 + timedelta(seconds=record.epoch_seconds)
+            milliseconds = record.ms
 
             timestamp_str = dt.strftime('%d-%m-%Y %H:%M:%S') + f".{milliseconds:03d}"
 
             f.write(f"  Timestamp: {timestamp_str}\n")
-            f.write(f"            (cycle={record.cycle_count}, offset_ms={record.timestamp_ms}, absolute_ms={absolute_ms})\n\n")
+            f.write(f"            (epoch_seconds={record.epoch_seconds}, ms={record.ms}, absolute_ms={absolute_ms})\n\n")
 
             # VectorNav (IMU/GPS) Data
             f.write("  VectorNav Data:\n")
-            f.write(f"    Attitude (YPR):  {record.yaw:7.2f}deg {record.pitch:7.2f}deg {record.roll:7.2f}deg\n")
+            f.write(f"    GPS Time (raw): {record.timegps} ns since 1980-01-01\n")
+            f.write(
+                "    GPS Time (UTC): "
+                f"{gps_components['year']:04d}-{gps_components['month']:02d}-{gps_components['day']:02d} "
+                f"{gps_components['hour']:02d}:{gps_components['minute']:02d}:{gps_components['second']:02d}."
+                f"{gps_components['millisecond']:03d}{gps_components['microsecond']:03d}{gps_components['nanosecond']:03d}\n"
+            )
+            f.write(
+                "                    "
+                f"(year={gps_components['year']}, month={gps_components['month']}, day={gps_components['day']}, "
+                f"hour={gps_components['hour']}, minute={gps_components['minute']}, second={gps_components['second']}, "
+                f"millisecond={gps_components['millisecond']}, microsecond={gps_components['microsecond']}, "
+                f"nanosecond={gps_components['nanosecond']})\n"
+            )
+            f.write(f"    Attitude (YPR):  {record.yaw:7.2f} {record.pitch:7.2f} {record.roll:7.2f} deg\n")
             f.write(f"    Velocity (NED):  {record.vel_n:8.3f} {record.vel_e:8.3f} {record.vel_d:8.3f} m/s\n")
             f.write(f"    Accel (XYZ):     {record.acc_x:8.3f} {record.acc_y:8.3f} {record.acc_z:8.3f} m/s^2\n")
             f.write(f"    Gyro (XYZ):      {record.gyro_x:8.3f} {record.gyro_y:8.3f} {record.gyro_z:8.3f} rad/s\n")
-            f.write(f"    Position (LLA):  {record.latitude:11.6f}deg {record.longitude:11.6f}deg {record.altitude:8.2f}m\n\n")
+            f.write(f"    Position (LLA):  {record.latitude:11.6f} {record.longitude:11.6f} {record.altitude:8.2f}m\n\n")
 
             # WindMaster Data
             f.write("  WindMaster Data:\n")
@@ -316,9 +355,24 @@ def main():
         print(f"\nFirst {args.head} records:")
         print("-" * 60)
         for i, record in enumerate(records[:args.head]):
-            absolute_ms = (record.cycle_count << 32) | record.timestamp_ms
+            absolute_ms = (record.epoch_seconds * 1000) + record.ms
+            _, gps_components = decode_timegps_ns(record.timegps)
             print(f"Record {i}:")
-            print(f"  Timestamp: {record.timestamp_ms} ms (cycle {record.cycle_count}, absolute {absolute_ms} ms)")
+            print(f"  Timestamp: {record.epoch_seconds}s + {record.ms} ms (absolute {absolute_ms} ms)")
+            print(f"  GPS Time (raw): {record.timegps} ns since 1980-01-01")
+            print(
+                "  GPS Time (UTC): "
+                f"{gps_components['year']:04d}-{gps_components['month']:02d}-{gps_components['day']:02d} "
+                f"{gps_components['hour']:02d}:{gps_components['minute']:02d}:{gps_components['second']:02d}."
+                f"{gps_components['millisecond']:03d}{gps_components['microsecond']:03d}{gps_components['nanosecond']:03d}"
+            )
+            print(
+                "                 "
+                f"(year={gps_components['year']}, month={gps_components['month']}, day={gps_components['day']}, "
+                f"hour={gps_components['hour']}, minute={gps_components['minute']}, second={gps_components['second']}, "
+                f"millisecond={gps_components['millisecond']}, microsecond={gps_components['microsecond']}, "
+                f"nanosecond={gps_components['nanosecond']})"
+            )
             print(f"  YPR: ({record.yaw:.2f}, {record.pitch:.2f}, {record.roll:.2f}) deg")
             print(f"  Wind UVW: ({record.U_axis_speed}, {record.V_axis_speed}, {record.W_axis_speed})")
             print(f"  Position: ({record.latitude:.6f}, {record.longitude:.6f}, {record.altitude:.2f}m)")
