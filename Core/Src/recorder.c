@@ -15,8 +15,8 @@
 /* Definitions ------------------------------------------------------------------*/
 #define WM_LEN 23
 #define VN_LEN 86
-#define WM_Q_LEN 64
-#define VN_Q_LEN 64
+#define WM_Q_LEN 64 /* Must be power of two */
+#define VN_Q_LEN 64 /* Must be power of two */
 #define RECORD_BUFFER_SIZE 4096  
 #define MAX_RECORDS_PER_SERVICE 32  /* 32*128 = 4KB, Only one full buffer will be processed at a time at most. */
 
@@ -30,6 +30,7 @@ static uint8_t wm_q_tail = 0;
 static uint8_t vn_q_head = 0;
 static uint8_t vn_q_tail = 0;
 
+/* Double buffers for recording, location in RAM2 specified in linker script */
 uint8_t record_buffer_a[RECORD_BUFFER_SIZE]__attribute__((section(".record_buffer_a")));
 uint8_t record_buffer_b[RECORD_BUFFER_SIZE]__attribute__((section(".record_buffer_b")));
 
@@ -41,8 +42,9 @@ static bool flush_pending = false;                   // True if flush in progres
 
 static bool recording = false;
 static uint32_t record_index = 0;
-static FIL log_fil;  // File object for logging
 
+/* File handle for log file */
+static FIL log_fil;
 char filename[128];
 
 /* Statistics tracking */
@@ -102,10 +104,13 @@ void recorder_start(void) {
   /* Open log file for writing (create it if it doesn't exist) */
   FS_Result_t fs_res = filesystem_open_log(&log_fil, filename);
 
+  /* Check if file open was successful */
   if (fs_res != FS_OK) {
+    /* Try fallback open */
     FRESULT fr = f_open(&log_fil, filename, FA_WRITE | FA_CREATE_ALWAYS);
 
     if (fr != FR_OK) {
+      /* File open failed */
       shell_printf("[REC] ERROR: File open failed (code %d)! Aborting.\r\n", fr);
       recording = false;
       return;
@@ -133,7 +138,7 @@ void recorder_stop(void) {
       UINT bw;
       FRESULT res = f_write(&log_fil, active_buffer + bytes_written, bytes_to_write - bytes_written, &bw);
       if (res != FR_OK) {
-        /* Handle error */
+        shell_printf("[REC] ERROR: File write failed (code %d)! Aborting.\r\n", res);
         break;
       }
       bytes_written += bw;
@@ -156,20 +161,25 @@ void recorder_stop(void) {
   */
 void recorder_queue_wm(const WM_Packet_t *pkt)
 {
+  /* Equivalent to (wm_q_head + 1) % WM_Q_LEN */
   uint8_t next = (wm_q_head + 1) & (WM_Q_LEN - 1);
+
+  /* Check if queue is full */
   if (next == wm_q_tail) {
-    /* Queue full, drop packet and log */
+    /* Queue full, drop packet and log it */
     wm_drops++;
     return;
   }
 
+  /* Enqueue the packet */
   wm_queue[wm_q_head].wm_packet = *pkt;
-
+  /* Advance head pointer */
   wm_q_head = next;
 
-  /* Track max queue depth */
+  /* DEBUG: Track max queue depth */
   uint8_t count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
   if (count > wm_queue_max) {
+    /* Update max */
     wm_queue_max = count;
   }
 }
@@ -181,25 +191,33 @@ void recorder_queue_wm(const WM_Packet_t *pkt)
   */
 void recorder_queue_vn(const VN_Packet_t *pkt)
 {
+  /* Equivalent to (vn_q_head + 1) % VN_Q_LEN */
   uint8_t next = (vn_q_head + 1) & (VN_Q_LEN - 1);
+
+  /* Check if queue is full */
   if (next == vn_q_tail) {
-    vn_drops++; // Track queue overflow
-    return; // queue full
+    /* Queue full, drop packet and log it */
+    vn_drops++;
+    return;
   }
 
+  /* Enqueue the packet */
   vn_queue[vn_q_head].vn_packet = *pkt;
 
+  /* Advance head pointer */
   vn_q_head = next;
 
-  /* Track max queue depth */
+  /* DEBUG: Track max queue depth */
   uint8_t count = get_queue_count(vn_q_head, vn_q_tail, VN_Q_LEN);
   if (count > vn_queue_max) {
+    /* Update max */
     vn_queue_max = count;
   }
 }
 
 void recorder_service(void) {
   if (!recording) {
+    /* Not recording, return fast */
     return;
   }
 
@@ -207,15 +225,14 @@ void recorder_service(void) {
   wm_drain_and_queue();
   vn_drain_and_queue();
 
-  /* Process up to MAX_RECORDS_PER_SERVICE pairs and then yield to allow
-   * cooperative multitasking with shell and tasker in main loop.
-   */
+  /* Process up to MAX_RECORDS_PER_SERVICE pairs and then yield to main loop */
   uint8_t records_processed = 0;
 
   while (wm_q_tail != wm_q_head &&
          vn_q_tail != vn_q_head &&
          records_processed < MAX_RECORDS_PER_SERVICE) {
 
+    /* Pointers to current queue entries */
     WM_QueueEntry_t *wm = &wm_queue[wm_q_tail];
     VN_QueueEntry_t *vn = &vn_queue[vn_q_tail];
 
@@ -235,10 +252,10 @@ void recorder_service(void) {
 
     /* Check if active buffer is full (32 records = 4KB) */
     if (active_buf_index >= 32) {
-      /* Swap buffers */
+      /* Buffer is full, so swap the active buffer */
       flip_buffers();
 
-      /* Write the flush buffer to SD card */
+      /* Flush the full buffer to the SD card */
       uint32_t bytes_to_write = RECORD_BUFFER_SIZE;
       uint32_t bytes_written = 0;
 
@@ -246,7 +263,7 @@ void recorder_service(void) {
         UINT bw;
         FRESULT res = f_write(&log_fil, flush_buffer + bytes_written, bytes_to_write - bytes_written, &bw);
         if (res != FR_OK) {
-          // Handle write error (optional: log or set error flag)
+          shell_printf("[REC] ERROR: File write failed (code %d)! Aborting.\r\n", res);
           break;
         }
         bytes_written += bw;
@@ -254,14 +271,12 @@ void recorder_service(void) {
 
       flush_pending = false;
 
-      /* After SD write, exit this service call to allow main loop to service shell/tasker.
-       * Next call to recorder_service() will continue draining queues if needed. */
+      /* After SD write, exit to main loop */
       break;
     }
   }
 }
   
-
 /* Private functions -----------------------------------------------*/
 
 /** @brief  Atomically swap active and flush buffers
@@ -277,51 +292,54 @@ static void flip_buffers(void) {
   flush_pending = true;
 }
 
-/* @brief  Build a data record from the given VN and WM data
+/** @brief  Build a data record from the given VN and WM data
   * @param  vn_data: Pointer to VN_Packet_t structure with IMU data
   * @param  wm_data: Pointer to WM_Packet_t structure with WindMaster data
   * @retval Recorder_Data_t: Filled recorder data structure
   */
 Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntry_t *wm_entry) {
+  /* Create and zero-initialize a new record */
   Recorder_Data_t record;
   memset(&record, 0, sizeof(Recorder_Data_t));
 
-  record.magic_number = 0xFACEFACE; // Unique identifier for the start of a record
+  /* Give it a magic number and log index */
+  record.magic_number = 0xFACEFACE;
   record.log_index = record_index++;
   
   /* Use the systime snapshot for timestamping */
   systime_snapshot(&record.epoch_seconds, &record.ms);
 
+  /* Extract pointers to the VN and WM data packets */
   const VN_Packet_t *vn_data = &vn_entry->vn_packet;
   const WM_Packet_t *wm_data = &wm_entry->wm_packet;
 
-    record.timegps = vn_data->timegps;
-    record.yaw = vn_data->yaw;
-    record.pitch = vn_data->pitch;
-    record.roll = vn_data->roll;
-    record.gyro_x = vn_data->gyro_x;
-    record.gyro_y = vn_data->gyro_y;
-    record.gyro_z = vn_data->gyro_z;
-    record.latitude = vn_data->latitude;
-    record.longitude = vn_data->longitude;
-    record.altitude = vn_data->altitude;
-    record.vel_n = vn_data->vel_n;
-    record.vel_e = vn_data->vel_e;
-    record.vel_d = vn_data->vel_d;
-    record.acc_x = vn_data->acc_x;
-    record.acc_y = vn_data->acc_y;
-    record.acc_z = vn_data->acc_z;
+  /* Copy data from VN and WM packets into the record */
+  record.timegps = vn_data->timegps;
+  record.yaw = vn_data->yaw;
+  record.pitch = vn_data->pitch;
+  record.roll = vn_data->roll;
+  record.gyro_x = vn_data->gyro_x;
+  record.gyro_y = vn_data->gyro_y;
+  record.gyro_z = vn_data->gyro_z;
+  record.latitude = vn_data->latitude;
+  record.longitude = vn_data->longitude;
+  record.altitude = vn_data->altitude;
+  record.vel_n = vn_data->vel_n;
+  record.vel_e = vn_data->vel_e;
+  record.vel_d = vn_data->vel_d;
+  record.acc_x = vn_data->acc_x;
+  record.acc_y = vn_data->acc_y;
+  record.acc_z = vn_data->acc_z;
+  record.U_axis_speed = wm_data->U_axis_speed;
+  record.V_axis_speed = wm_data->V_axis_speed;
+  record.W_axis_speed = wm_data->W_axis_speed;
+  record.SoS = wm_data->SoS;
+  record.Temp = wm_data->Temp;
 
-    record.U_axis_speed = wm_data->U_axis_speed;
-    record.V_axis_speed = wm_data->V_axis_speed;
-    record.W_axis_speed = wm_data->W_axis_speed;
-    record.SoS = wm_data->SoS;
-    record.Temp = wm_data->Temp;
-
-    return record;
+  return record;
 }
 
-/* @brief Calculate queue count (number of entries)
+/** @brief Calculate queue count (number of entries)
   * @param head: Queue head index
   * @param tail: Queue tail index
   * @param len: Queue length
@@ -329,39 +347,45 @@ Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntr
   */
 static uint8_t get_queue_count(uint8_t head, uint8_t tail, uint8_t len)
 {
+  /* Equivalent to (head - tail) % len */
   return (uint8_t)((head - tail) & (len - 1));
 }
 
-/* @brief Get recorder statistics
+/** @brief Get recorder statistics
   * @param None
   * @retval recorder_stats_t: Statistics structure
   */
 recorder_stats_t recorder_get_stats(void)
 {
+  /* Create a stats struct */
   recorder_stats_t stats;
   
+  /* Populate recorder and buffer state */
   stats.recording = recording;
   stats.records_written = record_index;
   stats.active_buffer_records = active_buf_index;
-  stats.active_buffer_capacity = 32; /* 4096 / 128 bytes */
+  stats.active_buffer_capacity = 32;
   
+  /* Populate queue state */
   stats.wm_queue_count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
   stats.wm_queue_capacity = WM_Q_LEN;
   stats.vn_queue_count = get_queue_count(vn_q_head, vn_q_tail, VN_Q_LEN);
   stats.vn_queue_capacity = VN_Q_LEN;
   
+  /* Populate drop and max queue stats */
   stats.wm_queue_max = wm_queue_max;
   stats.vn_queue_max = vn_queue_max;
   stats.wm_drops = wm_drops;
   stats.vn_drops = vn_drops;
   
+  /* Copy filename safely */
   strncpy(stats.filename, filename, sizeof(stats.filename) - 1);
   stats.filename[sizeof(stats.filename) - 1] = '\0';
   
   return stats;
 }
 
-/*  @brief Clear recorder statistics
+/** @brief Clear recorder statistics
   * @param None
   * @retval None
   */
@@ -373,7 +397,7 @@ void recorder_clear_stats(void)
   vn_queue_max = 0;
 }
 
-/*  @brief Check if recorder is currently recording
+/** @brief Check if recorder is currently recording
   * @param None
   * @retval bool: true if recording, false otherwise
   */
