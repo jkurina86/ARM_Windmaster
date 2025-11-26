@@ -10,20 +10,13 @@
 #include "stm32l4xx_ll_tim.h"
 #include <stdbool.h>
 
-/* Internal State (Global) -------------------------------------------------- */
-static volatile uint32_t g_epoch_sec = 0;                           /* Seconds since 2000-01-01 00:00:00 (wraps every ~136 years) */
-static volatile uint32_t g_ms = 0;                                  /* Milliseconds offset within the current second (includes phase corrections) */
-static volatile uint32_t g_pps_t2 = 0;                              /* TIM2 counter at last PPS */
-static volatile uint32_t g_tps_est = 1000000;                       /* TIM2 ticks per second estimate (Nominal: 1 MHz) */
-static volatile int32_t g_phase_ticks = 0;                          /* Phase offset from the RTC Pulses in ticks */
-static volatile uint32_t g_pps_count = 0;                           /* Number of PPS events seen */
-static volatile bool g_set_pending = false;                         /* Request to set time on next PPS */
-static volatile uint32_t g_set_epoch_sec = 0;                       /* Pending epoch seconds to apply on next PPS */
-static volatile uint32_t g_set_ms = 0;                              /* Pending millisecond offset to apply on next PPS */
-
-/* Private defines -----------------------------------------------------------*/
-#define RATE_SHIFT 4
-#define PHASE_SHIFT 3
+/* Internal State ----------------------------------------------------------- */
+static volatile uint32_t g_epoch_sec = 0;      /* Seconds since 2000-01-01 00:00:00 */
+static volatile uint32_t g_pps_t2 = 0;         /* TIM2 counter at last PPS */
+static volatile uint32_t g_tps_est = 1000000;  /* TIM2 ticks per second estimate (nominal 1 MHz) */
+static volatile uint32_t g_pps_count = 0;      /* Number of PPS events seen */
+static volatile bool g_set_pending = false;    /* Request to set time on next PPS */
+static volatile uint32_t g_set_epoch_sec = 0;  /* Pending epoch seconds to apply on next PPS */
 
 /* Private inline helper functions -------------------------------------------*/
 
@@ -60,99 +53,56 @@ static inline uint32_t month_offset(uint32_t m, bool leap){
   * @note Converts seconds to milliseconds (no Q32 fixed-point needed)
 */
 void systime_init(const RTC_DateTime_t* initial_dt) {
-    uint32_t initial_epoch_sec = datetime_to_epoch(initial_dt);
-    g_epoch_sec = initial_epoch_sec;
-    g_ms = 0;
+    g_epoch_sec = datetime_to_epoch(initial_dt);
     g_pps_t2 = LL_TIM_GetCounter(TIM2);
-    g_tps_est = 1000000; /* TIM2 is free-running at 1 MHz */
-    g_phase_ticks = 0;  /* No phase initially */
+    g_tps_est = 1000000;
     g_pps_count = 0;
     g_set_pending = false;
     g_set_epoch_sec = 0;
-    g_set_ms = 0;
 }
 
 /** @brief Request to set system time at next PPS event
-  * @param new_epoch_ms New epoch time in milliseconds since 2000-01-01
+  * @param new_epoch_sec New epoch time in seconds since 2000-01-01
   * @retval None
   * @note Time will be set on next PPS event
 */
-void systime_request_update(uint32_t new_epoch_ms) {
-    g_set_epoch_sec = new_epoch_ms / 1000U;
-    g_set_ms = new_epoch_ms % 1000U;
+void systime_request_update(uint32_t new_epoch_sec) {
+    g_set_epoch_sec = new_epoch_sec;
     g_set_pending = true;
 }
 
 /** @brief Handle PPS event from inside the TIM3 interrupt
-    * @param None
-    * @retval None
-    * @note Updates epoch seconds, millisecond accumulator, phase, and ticks-per-second estimate
-    * @note All operations are 32-bit (atomic on Cortex-M4, no 64-bit arithmetic)
-*/
+ *  @param None
+ *  @retval None
+ *  @note Updates epoch seconds and TIM2 reference for sub-second interpolation
+ */
 void systime_pps_event(void) {
     /* Sample the TIM2 counter */
     uint32_t t2_now = LL_TIM_GetCounter(TIM2);
+    
+    /* Calculate ticks since last PPS (handle wraparound) */
     uint32_t delta_t2;
-    /* Check for timer wrap-around, happens every hour and 11 minutes or so... */
     if (t2_now >= g_pps_t2) {
-        /* Normal case, Delta = number of ticks since last PPS event */
         delta_t2 = t2_now - g_pps_t2;
     } else {
-        /* Timer wrapped around: subtract current value from max */
         delta_t2 = 0xFFFFFFFF - g_pps_t2 + t2_now + 1;
     }
-    g_pps_t2 = t2_now; /* Update the global last-PPS TIM2 counter */
+    
+    /* Update TIM2 reference point */
+    g_pps_t2 = t2_now;
 
-    /* Update ticks-per-second estimate using an exponential moving average (32-bit) */
+    /* Update ticks-per-second estimate (EMA over 16 samples) */
     if (g_pps_count > 0) {
-        /** RATE_SHIFT = 4, so this averages over 16 PPS events.
-          * Update the global TIM2 ticks per second estimate.
-          * This is equivalent to g_tps_est = ((g_tps_est * 15) + delta_t2) / 16; 
-          */
-        g_tps_est = ((g_tps_est * ((1 << RATE_SHIFT) - 1)) + delta_t2) >> RATE_SHIFT;
+        g_tps_est = ((g_tps_est * 15U) + delta_t2) >> 4;
     }
 
-    /* Advance epoch by one second and reset sub-millisecond accumulator */
+    /* Advance epoch by one second */
     g_epoch_sec += 1U;
-    g_ms = 0U;
 
-    /* Determine the phase error: Actual - Expected ticks since last PPS (32-bit) */
-    int32_t phase_error = (int32_t)delta_t2 - (int32_t)g_tps_est;
-
-    /* Update the phase accumulator by adding the phase error.
-     * Shift the phase error right by 3 bits to avoid correcting on small differences. */
-    g_phase_ticks += phase_error >> PHASE_SHIFT;
-
-    /* Apply phase correction */
-    if (g_phase_ticks > (int32_t)g_tps_est / 2) {
-        /* Phase exceeds half a second worth of ticks: add 1 ms to epoch */
-        g_phase_ticks -= g_tps_est;
-        g_ms += 1U;
-        if (g_ms >= 1000U) {
-            g_ms -= 1000U;
-            g_epoch_sec += 1U;
-        }
-    } else if (g_phase_ticks < -(int32_t)g_tps_est / 2) {
-        /* Phase is less than negative half: subtract 1 ms from epoch */
-        g_phase_ticks += g_tps_est;
-        if (g_ms > 0U) {
-            g_ms -= 1U;
-        } else {
-            g_ms = 999U;
-            if (g_epoch_sec > 0U) {
-                g_epoch_sec -= 1U;
-            }
-        }
-    }
-
-    /* Handle pending time-set */
+    /* Handle pending time-set request */
     if (g_set_pending) {
         g_epoch_sec = g_set_epoch_sec;
-        g_ms = g_set_ms;
         g_set_pending = false;
-
-        /* Reset the phase accumulator for new time. */
-        g_phase_ticks = 0;
     }
 
     g_pps_count++;
@@ -170,10 +120,13 @@ uint32_t time_s_now(void) {
 /** @brief Get current time in milliseconds since 2000-01-01 00:00:00
   * @param None
   * @retval Current time in milliseconds
-  * @note Combines seconds and milliseconds
+  * @note Combines seconds and milliseconds, 64-bit arithmetic
 */
 uint64_t time_ms_now(void) {
-    return ((uint64_t)g_epoch_sec * 1000ULL) + (uint64_t)g_ms;
+    uint32_t epoch_sec;
+    uint16_t ms;
+    systime_snapshot(&epoch_sec, &ms);
+    return ((uint64_t)epoch_sec * 1000ULL) + (uint64_t)ms;
 }
 
 /** @brief Get formatted timestamp string for a given time in seconds
@@ -337,17 +290,18 @@ void systime_snapshot(uint32_t *epoch_seconds, uint16_t *ms) {
         return;
     }
 
-    /* Capture volatile globals with interrupts disabled for consistency */
-    uint32_t primask = __get_PRIMASK();
-    __disable_irq();
+    uint32_t epoch_local;
+    uint32_t pps_t2_local;
+    uint32_t tps_est_local;
+    uint32_t t2_now;
     
-    uint32_t t2_now = LL_TIM_GetCounter(TIM2);
-    uint32_t pps_t2_local = g_pps_t2;
-    uint32_t tps_est_local = g_tps_est;
-    uint32_t ms_local = g_ms;
-    uint32_t epoch_local = g_epoch_sec;
-    
-    __set_PRIMASK(primask);  /* Re-enable interrupts ASAP */
+    /* Lock-free read: if epoch changes during read, a PPS occurred - retry */
+    do {
+        epoch_local = g_epoch_sec;
+        pps_t2_local = g_pps_t2;
+        tps_est_local = g_tps_est;
+        t2_now = LL_TIM_GetCounter(TIM2);
+    } while (epoch_local != g_epoch_sec);
     
     /* Calculate ticks since last PPS (handle wraparound) */
     uint32_t delta_ticks;
@@ -357,20 +311,15 @@ void systime_snapshot(uint32_t *epoch_seconds, uint16_t *ms) {
         delta_ticks = 0xFFFFFFFF - pps_t2_local + t2_now + 1;
     }
     
-    /* Convert ticks to milliseconds: ms = (delta_ticks * 1000) / tps_est */
-    /* tps_est is ~1000000, so tps_est/1000 = ~1000 ticks per ms */
-    uint32_t ticks_per_ms = tps_est_local / 1000U;
-    uint32_t elapsed_ms = delta_ticks / ticks_per_ms;
+    /* Convert ticks to milliseconds */
+    uint32_t elapsed_ms = delta_ticks / (tps_est_local / 1000U);
     
-    /* Add any phase correction offset stored in g_ms */
-    uint32_t total_ms = ms_local + elapsed_ms;
-    
-    /* Handle second rollover if elapsed time exceeds 1 second */
-    if (total_ms >= 1000U) {
-        total_ms -= 1000U;
+    /* Handle second rollover (shouldn't happen normally, but be safe) */
+    if (elapsed_ms >= 1000U) {
+        elapsed_ms -= 1000U;
         epoch_local += 1U;
     }
     
     *epoch_seconds = epoch_local;
-    *ms = (uint16_t)total_ms;
+    *ms = (uint16_t)elapsed_ms;
 }

@@ -17,9 +17,10 @@
 /* Function Prototypes -------------------------------------------------------*/
 uint32_t datetime_to_epoch(const RTC_DateTime_t* dt);
 void systime_init(const RTC_DateTime_t* dt);
-void systime_request_update(uint32_t new_epoch_ms);
+void systime_request_update(uint32_t new_epoch_sec);
 void systime_pps_event(void);
 uint32_t time_s_now(void);
+uint64_t time_ms_now(void);
 const char* timestamp(uint32_t s);
 int32_t systime_ppm_estimate(void);
 bool systime_have_lock(void);

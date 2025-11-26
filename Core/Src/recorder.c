@@ -289,7 +289,7 @@ Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntr
   record.magic_number = 0xFACEFACE; // Unique identifier for the start of a record
   record.log_index = record_index++;
   
-  /* Use the systime snapshot for accurate timestamping */
+  /* Use the systime snapshot for timestamping */
   systime_snapshot(&record.epoch_seconds, &record.ms);
 
   const VN_Packet_t *vn_data = &vn_entry->vn_packet;

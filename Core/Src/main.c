@@ -242,10 +242,10 @@ int main(void)
   /* Initialize UART interrupts for input detection */
   init_uart_interrupts();
 
-  /* Initialize the WindMaster Sensor*/
+  /* Initialize the WindMaster Sensor */
   wm_init();
 
-  /* Initialize the IMU Sensor*/
+  /* Initialize the IMU Sensor */
   vn_init();
 
   /* Allow time for SD card power and UART lines to stabilize and clear any flags */
@@ -368,10 +368,10 @@ void rtc_init(void) {
 }
 
 void snooze (uint16_t seconds) {
-  /* Stop recording if active */
-  recorder_stats_t stats = recorder_get_stats();
-  if (stats.recording) {
-    recorder_stop();
+  /* Check if the recorder is running */
+  if (recorder_is_recording()) {
+    shell_printf("[SNOOZE] ERROR: Cannot enter snooze while recording is active!\r\n");
+    return;
   }
 
   /* Disable the TIM2 1Mhz free-running counter */

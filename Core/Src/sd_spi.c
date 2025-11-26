@@ -94,13 +94,22 @@ static volatile bool spi_rx_done = false;
 
 /* HAL DMA completion callbacks for this SPI */
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi) {
-    if (hspi == &SD_SPI_HANDLE) spi_tx_done = true;
+    if (hspi == &SD_SPI_HANDLE) {
+		spi_tx_done = true;
+	}
 }
+
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi) {
-    if (hspi == &SD_SPI_HANDLE) spi_rx_done = true;
+    if (hspi == &SD_SPI_HANDLE) {
+		spi_rx_done = true;
+	}
 }
+
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
-    if (hspi == &SD_SPI_HANDLE) { spi_tx_done = true; spi_rx_done = true; }
+    if (hspi == &SD_SPI_HANDLE) { 
+		spi_tx_done = true; 
+		spi_rx_done = true; 
+	}
 }
 
 /* Spin-wait helper with timeout */
