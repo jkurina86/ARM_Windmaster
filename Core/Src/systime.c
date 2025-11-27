@@ -3,7 +3,6 @@
   * @file    systime.c
   * @brief   System time functions
   * @note    Timekeeping using RTC and TIM2 with PPS synchronization
-  * @note    Software implementation of an NTP-like PLL for microsecond accuracy
   ******************************************************************************
   */
 #include "systime.h"
@@ -132,7 +131,7 @@ uint64_t time_ms_now(void) {
 /** @brief Get formatted timestamp string for a given time in seconds
   * @param s Time in seconds since 2000-01-01 00:00:00
   * @retval Formatted timestamp string in format "MM-DD-YYYY,HH:MM:SS"
-  * @note Returns static buffer, not thread-safe
+  * @note Returns static string buffer
 */
 const char* timestamp(uint32_t s) {
     static char buffer[64];

@@ -6,6 +6,7 @@ set(MX_Defines_Syms
 	USE_FULL_LL_DRIVER 
 	USE_HAL_DRIVER 
 	STM32L476xx
+	ARM_MATH_CM4
     $<$<CONFIG:Debug>:DEBUG>
 )
 
@@ -19,6 +20,7 @@ set(MX_Include_Dirs
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Middlewares/Third_Party/FatFs/src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/CMSIS/Device/ST/STM32L4xx/Include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/CMSIS/Include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/CMSIS/DSP/Include
 )
 
 # STM32CubeMX generated application sources
@@ -87,14 +89,14 @@ set(FatFs_Src
 
 # Link directories setup
 set(MX_LINK_DIRS
-
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/CMSIS/DSP/Lib/GCC
 )
 # Project static libraries
 set(MX_LINK_LIBS 
     STM32_Drivers
     ${TOOLCHAIN_LINK_LIBRARIES}
     FatFs
-	
+    arm_cortexM4lf_math
 )
 # Interface library for includes and symbols
 add_library(stm32cubemx INTERFACE)

@@ -19,8 +19,6 @@ extern "C" {
 #include "windmaster.h"
 #include "vectornav.h"
 
-
-
 /* Exported Types ------------------------------------------------------------*/
 
 typedef struct {
@@ -33,11 +31,11 @@ typedef struct {
 
 /* Combined data structure for recording both WindMaster and VectorNav data */
 typedef struct {
-  uint32_t magic_number;    // Unique identifier for the start of a record
-  uint32_t log_index;       // Record index
-  uint32_t epoch_seconds;   // Epoch seconds since 2000-01-01 00:00:00
-  uint16_t ms;          // Millisecond fraction within the current second
-  uint64_t timegps;         // GPS time in nanoseconds since 1-1-1980 00:00:00 (8 bytes)
+  uint32_t magic_number;
+  uint32_t log_index;
+  uint32_t epoch_seconds;
+  uint16_t ms;
+  uint64_t timegps;
   float yaw;
   float pitch;
   float roll;
@@ -53,12 +51,12 @@ typedef struct {
   float acc_x;
   float acc_y;
   float acc_z;
-  int16_t U_axis_speed;     // U-axis wind speed
-  int16_t V_axis_speed;     // V-axis wind speed
-  int16_t W_axis_speed;     // W-axis wind speed
-  int16_t SoS;              // Speed of Sound
-  int16_t Temp;             // Temperature from PRT
-  uint8_t footer_padding[20];    // Explicit padding; compiler adds final 2 bytes to keep struct 128 bytes total
+  int16_t U_axis_speed;
+  int16_t V_axis_speed;
+  int16_t W_axis_speed;
+  int16_t SoS;
+  int16_t Temp;
+  uint8_t footer_padding[20];
 } Recorder_Data_t;
 
 _Static_assert(sizeof(Recorder_Data_t) == 128, "Recorder_Data_t must remain 128 bytes");
