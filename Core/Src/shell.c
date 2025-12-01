@@ -11,7 +11,11 @@
 #include <stdarg.h>
 #include "usart.h"
 #include "filesystem.h"
+#include "tasker.h"
+#include "task_gen.h"
 #include "task_rtc.h"
+#include "task_fs.h"
+#include "task_rec.h"
 
 /* Private variables ---------------------------------------------------------*/
 static char shell_buffer[SHELL_MAX_CMD_LEN];
@@ -266,7 +270,7 @@ static int shell_parse_command(char *cmd_line, char **argv)
 void cmd_help(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_help();
+    tasker_enqueue(handle_help, NULL, 0);
 }
 
 /**
@@ -276,7 +280,7 @@ void cmd_help(int argc, char **argv)
 void cmd_clear(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_clear();
+    tasker_enqueue(handle_clear, NULL, 0);
 }
 
 /**
@@ -286,7 +290,7 @@ void cmd_clear(int argc, char **argv)
 void cmd_status(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_status();
+    tasker_enqueue(handle_status, NULL, 0);
 }
 
 /**
@@ -297,8 +301,9 @@ void cmd_reset(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
 
-    /* Schedule reset task */
-    schedule_reset(3000u);
+    /* Schedule reset task with 3 second delay */
+    reset_args_t args = { .reset_due_ms = HAL_GetTick() + 3000u };
+    tasker_enqueue(handle_reset, &args, sizeof(args));
 }
 
 /**
@@ -308,7 +313,7 @@ void cmd_reset(int argc, char **argv)
 void cmd_version(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_version();
+    tasker_enqueue(handle_version, NULL, 0);
 }
 
 /**
@@ -330,7 +335,8 @@ void cmd_hello(int argc, char **argv)
         return;
     }
 
-    schedule_hello((uint8_t)uart_num);
+    hello_args_t args = { .uart_num = (uint8_t)uart_num };
+    tasker_enqueue(handle_hello, &args, sizeof(args));
 }
 
 /**
@@ -348,7 +354,8 @@ void cmd_snooze(int argc, char **argv)
     }
 
     /* Schedule snooze task */
-    schedule_snooze(seconds);
+    snooze_args_t args = { .seconds = seconds };
+    tasker_enqueue(handle_snooze, &args, sizeof(args));
 }
 
 /* RTC Commands -----------------------------------------------*/
@@ -361,8 +368,21 @@ void cmd_snooze(int argc, char **argv)
   */
 void cmd_rtc_settime(int argc, char **argv)
 {
-    /* Schedule RTC settime task with all arguments */
-    schedule_rtc_settime(argc, argv);
+    /* Parse arguments and schedule RTC settime task */
+    rtc_settime_args_t args = {0};
+    
+    if (argc >= 8 && argv != NULL) {
+        args.year = (uint16_t)atoi(argv[1]);
+        args.months = (uint8_t)atoi(argv[2]);
+        args.days = (uint8_t)atoi(argv[3]);
+        args.hours = (uint8_t)atoi(argv[4]);
+        args.minutes = (uint8_t)atoi(argv[5]);
+        args.seconds = (uint8_t)atoi(argv[6]);
+        args.weekdays = (uint8_t)atoi(argv[7]);
+        args.valid = 1;
+    }
+    
+    tasker_enqueue(handle_rtc_settime, &args, sizeof(args));
 }
 
 /**
@@ -374,7 +394,7 @@ void cmd_rtc_settime(int argc, char **argv)
 void cmd_rtc_gettime(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_rtc_gettime();
+    tasker_enqueue(handle_rtc_gettime, NULL, 0);
 }
 
 /**
@@ -386,7 +406,7 @@ void cmd_rtc_gettime(int argc, char **argv)
 void cmd_rtc_temp(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_rtc_temp();
+    tasker_enqueue(handle_rtc_temp, NULL, 0);
 }
 
 /* RTC Timer Commands -----------------------------------------------*/
@@ -406,7 +426,8 @@ void cmd_rtc_timer_set(int argc, char **argv)
     }
 
     /* Schedule RTC timer set task */
-    schedule_rtc_timer_set(seconds);
+    rtc_timer_args_t args = { .seconds = seconds };
+    tasker_enqueue(handle_rtc_timer_set, &args, sizeof(args));
 }
 
 /**
@@ -418,7 +439,7 @@ void cmd_rtc_timer_set(int argc, char **argv)
 void cmd_rtc_timer_stop(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_rtc_timer_stop();
+    tasker_enqueue(handle_rtc_timer_stop, NULL, 0);
 }
 
 /**
@@ -430,7 +451,7 @@ void cmd_rtc_timer_stop(int argc, char **argv)
 void cmd_rtc_timer_status(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_rtc_timer_status();
+    tasker_enqueue(handle_rtc_timer_status, NULL, 0);
 }
 
 /* File System Commands -----------------------------------------------*/
@@ -445,7 +466,7 @@ void cmd_fs_mount(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
 
-    schedule_fs_mount();
+    tasker_enqueue(handle_fs_mount, NULL, 0);
 }
 
 /** @brief Schedule an unmount task
@@ -458,7 +479,7 @@ void cmd_fs_unmount(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
 
-    schedule_fs_unmount();
+    tasker_enqueue(handle_fs_unmount, NULL, 0);
 }
 
 /**
@@ -472,7 +493,7 @@ void cmd_fs_df(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
 
-    schedule_fs_df();
+    tasker_enqueue(handle_fs_df, NULL, 0);
 }
 
 /**
@@ -484,7 +505,7 @@ void cmd_fs_df(int argc, char **argv)
 void cmd_fs_ls(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_fs_ls();
+    tasker_enqueue(handle_fs_ls, NULL, 0);
 }
 
 /**
@@ -505,7 +526,7 @@ void cmd_fs_cat(int argc, char **argv)
         buffers->filename[sizeof(buffers->filename) - 1] = '\0'; /* Ensure null-termination */
     }
 
-    schedule_fs_cat();
+    tasker_enqueue(handle_fs_cat, NULL, 0);
 }
 
 /**
@@ -532,7 +553,7 @@ void cmd_fs_write(int argc, char **argv)
         buffers->file_data[sizeof(buffers->file_data) - 1] = '\0';
     }
 
-    schedule_fs_write();
+    tasker_enqueue(handle_fs_write, NULL, 0);
 }
 
 /**
@@ -553,7 +574,7 @@ void cmd_fs_rm(int argc, char **argv)
         buffers->filename[sizeof(buffers->filename) - 1] = '\0';
     }
 
-    schedule_fs_rm();
+    tasker_enqueue(handle_fs_rm, NULL, 0);
 }
 
 /**
@@ -575,7 +596,7 @@ void cmd_fs_mkdir(int argc, char **argv)
         buffers->dirname[sizeof(buffers->dirname) - 1] = '\0';
     }
 
-    schedule_fs_mkdir();
+    tasker_enqueue(handle_fs_mkdir, NULL, 0);
 }
 
 /**
@@ -596,7 +617,7 @@ void cmd_fs_rmdir(int argc, char **argv)
         buffers->dirname[sizeof(buffers->dirname) - 1] = '\0';
     }
 
-    schedule_fs_rmdir();
+    tasker_enqueue(handle_fs_rmdir, NULL, 0);
 }
 
 /** @brief Schedule a cp task
@@ -622,7 +643,7 @@ void cmd_fs_cp(int argc, char **argv)
         buffers->dest_filename[sizeof(buffers->dest_filename) - 1] = '\0';
     }
 
-    schedule_fs_cp();
+    tasker_enqueue(handle_fs_cp, NULL, 0);
 }
 
 /* Recorder Commands -----------------------------------------------*/
@@ -636,7 +657,7 @@ void cmd_fs_cp(int argc, char **argv)
 void cmd_rec_start(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_rec_start();
+    tasker_enqueue(handle_rec_start, NULL, 0);
 }
 
 /**
@@ -648,7 +669,7 @@ void cmd_rec_start(int argc, char **argv)
 void cmd_rec_stop(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_rec_stop();
+    tasker_enqueue(handle_rec_stop, NULL, 0);
 }
 
 /**
@@ -660,7 +681,7 @@ void cmd_rec_stop(int argc, char **argv)
 void cmd_rec_stats(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
-    schedule_rec_stats();
+    tasker_enqueue(handle_rec_stats, NULL, 0);
 }
 
 /* UART Interrupt Callbacks -------------------------------------------------*/

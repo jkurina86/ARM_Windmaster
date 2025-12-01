@@ -1,183 +1,119 @@
 /**
   ******************************************************************************
   * @file    tasker.c
-  * @brief   Task scheduler implementation
-  * @note    Simple task scheduler for command execution
+  * @brief   Simplified task scheduler implementation
+  * @note    Function pointer queue for deferred command execution
   ******************************************************************************
   */
 
 #include "tasker.h"
-#include "shell.h"
-#include "main.h"
 
 /* Private types -------------------------------------------------------------*/
 
 /**
- * @brief Task control block
+ * @brief Queued task structure
  */
 typedef struct {
-    uint8_t pending;                /* Task pending flag */
-    task_data_t data;               /* Task-specific data */
-} task_t;
+    task_fn_t fn;                   /* Function to execute */
+    uint8_t arg[TASK_ARG_SIZE];     /* Inline argument storage */
+} queued_task_t;
 
 /* Private variables ---------------------------------------------------------*/
 
-/* Array of task control blocks indexed by task type, this gets populated during init. */
-static task_t tasks[TASK_MAX];
+/** Circular queue of pending tasks */
+static queued_task_t task_queue[TASK_QUEUE_LEN];
 
-/**
- * @brief Task dispatch table: Maps each task type to its handler and auto-clear behavior.
- *        This table drives the loop in tasker_run(), ensuring compile-time alignment with task_type_t.
- *        - Handler: Function to execute for the task.
- *        - Auto-clear: 1 to clear after execution, 0 to leave pending.
- * @note When adding a new task: Update task_type_t enum in tasker.h and add an entry here.
- */
-static const task_descriptor_t task_table[TASK_MAX] = {
-    [TASK_NONE] = { NULL, 1 },
+/** Queue head (next write position) */
+static volatile uint8_t queue_head = 0;
 
-    /* General Tasks */
-    [TASK_RESET] = { handle_reset, 0 },
-    [TASK_HELLO] = { handle_hello, 1 },
-    [TASK_VERSION] = { handle_version, 1 },
-    [TASK_HELP] = { handle_help, 1 },
-    [TASK_CLEAR] = { handle_clear, 1 },
-    [TASK_STATUS] = { handle_status, 1 },
-    [TASK_SNOOZE] = { handle_snooze, 1 },
-
-    /* Filesystem Tasks */
-    [TASK_FS_MOUNT] = { handle_fs_mount, 1 },
-    [TASK_FS_UNMOUNT] = { handle_fs_unmount, 1 },
-    [TASK_FS_DF] = { handle_fs_df, 1 },
-    [TASK_FS_LS] = { handle_fs_ls, 1 },
-    [TASK_FS_CAT] = { handle_fs_cat, 1 },
-    [TASK_FS_WRITE] = { handle_fs_write, 1 },
-    [TASK_FS_RM] = { handle_fs_rm, 1 },
-    [TASK_FS_MKDIR] = { handle_fs_mkdir, 1 },
-    [TASK_FS_RMDIR] = { handle_fs_rmdir, 1 },
-    [TASK_FS_CP] = { handle_fs_cp, 1 },
-    
-    /* RTC Tasks */
-    [TASK_RTC_TIMER_STATUS] = { handle_rtc_timer_status, 1 },
-    [TASK_RTC_TIMER_STOP] = { handle_rtc_timer_stop, 1 },
-    [TASK_RTC_TIMER_SET] = { handle_rtc_timer_set, 1 },
-    [TASK_RTC_TEMP] = { handle_rtc_temp, 1 },
-    [TASK_RTC_GETTIME] = { handle_rtc_gettime, 1 },
-    [TASK_RTC_SETTIME] = { handle_rtc_settime, 1 },
-    
-    /* Recorder Tasks */
-    [TASK_REC_START] = { handle_rec_start, 1 },
-    [TASK_REC_STOP] = { handle_rec_stop, 1 },
-    [TASK_REC_STATS] = { handle_rec_stats, 1 },
-};
-
-/* Private function prototypes -----------------------------------------------*/
+/** Queue tail (next read position) */
+static volatile uint8_t queue_tail = 0;
 
 /* Public functions ----------------------------------------------------------*/
 
 /**
  * @brief Initialize the task scheduler
- * @param None
- * @retval None
  */
 void tasker_init(void)
 {
-    /* Clear all task control blocks */
-    for (int i = 0; i < TASK_MAX; i++) {
-        /* Clear pending flags */
-        tasks[i].pending = 0;
-        /* Set task data to zero */
-        memset((void*)&tasks[i].data, 0, sizeof(task_data_t));
-    }
+    queue_head = 0;
+    queue_tail = 0;
+    memset(task_queue, 0, sizeof(task_queue));
 }
 
 /**
- * @brief Run pending tasks
- * @param None
- * @retval None
+ * @brief Execute all pending tasks in queue order
  */
 void tasker_run(void)
 {
-    /* Loop through all tasks */
-    for (int i = 0; i < TASK_MAX; i++) {
-        /* Check if task is pending and has a valid handler */
-        if (tasks[i].pending && task_table[i].handler != NULL) {
-            /* Call the task handler with its data */
-            task_table[i].handler((const task_data_t*)&tasks[i].data);
-            /* Auto-clear pending flag if configured */
-            if (task_table[i].auto_clear) {
-                tasks[i].pending = 0;
-            }
+    while (queue_tail != queue_head) {
+        queued_task_t *task = &task_queue[queue_tail];
+        
+        if (task->fn != NULL) {
+            task->fn(task->arg);
         }
+        
+        /* Advance tail with wraparound (power of 2 optimization) */
+        queue_tail = (queue_tail + 1) & (TASK_QUEUE_LEN - 1);
     }
 }
 
 /**
- * @brief Schedule a task for execution
- * @param task_type: Type of task to schedule
- * @param task_data: Optional task data (can be NULL)
- * @retval None
+ * @brief Enqueue a task for deferred execution
+ * @param fn      Function to call (must not be NULL)
+ * @param arg     Pointer to argument data (copied into queue, may be NULL)
+ * @param arg_len Size of argument data in bytes (0 if arg is NULL)
+ * @retval true if successfully enqueued, false if queue full
  */
-void tasker_schedule_task(task_type_t task_type, const task_data_t *task_data)
+bool tasker_enqueue(task_fn_t fn, const void *arg, size_t arg_len)
 {
-    /* Check for valid task type */
-    if (task_type >= TASK_MAX) {
-        return;
+    if (fn == NULL) {
+        return false;
     }
     
-    /* Copy task data if provided */
-    if (task_data != NULL) {
-        memcpy((void*)&tasks[task_type].data, task_data, sizeof(task_data_t));
+    /* Calculate next head position */
+    uint8_t next_head = (queue_head + 1) & (TASK_QUEUE_LEN - 1);
+    
+    /* Check if queue is full */
+    if (next_head == queue_tail) {
+        return false;
     }
     
-    /* Set task as pending */
-    tasks[task_type].pending = 1;
-}
-
-/**
- * @brief Check if a specific task is pending
- * @param task_type: Type of task to check
- * @retval 1 if task is pending, 0 otherwise
- */
-uint8_t tasker_get_pending(task_type_t task_type)
-{
-    /* Check for valid task type */
-    if (task_type >= TASK_MAX) {
-        return 0;
-    }
-
-    return tasks[task_type].pending;
-}
-
-/**
- * @brief Clear a pending task flag
- * @param task_type: Type of task to clear
- * @retval None
- */
-void tasker_clear_task_pending(task_type_t task_type)
-{
-    /* Check for valid task type */
-    if (task_type >= TASK_MAX) {
-        return;
-    }
-
-    tasks[task_type].pending = 0;
-}
-
-/**
- * @brief Get task data for a specific task
- * @param task_type: Type of task to get data for
- * @retval Pointer to task data
- * @note Returns a const pointer to prevent modification of task data
- */
-const task_data_t* tasker_get_task_data(task_type_t task_type)
-{
-    /* Check for valid task type */ 
-    if (task_type >= TASK_MAX) {
-        return NULL;
-    }
-
-    /* Get a pointer to the task data and cast it to const */
-    const task_data_t* task_data = (const task_data_t*)&tasks[task_type].data;
+    /* Get pointer to slot */
+    queued_task_t *task = &task_queue[queue_head];
     
-    return task_data;
+    /* Store function pointer */
+    task->fn = fn;
+    
+    /* Copy argument data if provided */
+    if (arg != NULL && arg_len > 0) {
+        size_t copy_len = (arg_len < TASK_ARG_SIZE) ? arg_len : TASK_ARG_SIZE;
+        memcpy(task->arg, arg, copy_len);
+    } else {
+        /* Clear argument storage */
+        memset(task->arg, 0, TASK_ARG_SIZE);
+    }
+    
+    /* Advance head */
+    queue_head = next_head;
+    
+    return true;
+}
+
+/**
+ * @brief Check if task queue is empty
+ * @retval true if no pending tasks, false otherwise
+ */
+bool tasker_is_empty(void)
+{
+    return queue_head == queue_tail;
+}
+
+/**
+ * @brief Get number of pending tasks in queue
+ * @retval Number of tasks waiting to be executed
+ */
+uint8_t tasker_pending_count(void)
+{
+    return (uint8_t)((queue_head - queue_tail) & (TASK_QUEUE_LEN - 1));
 }

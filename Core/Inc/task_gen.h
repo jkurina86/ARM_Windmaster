@@ -14,28 +14,33 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include <stdint.h>
-#include "tasker.h"
 
-/* Forward declarations ------------------------------------------------------------------*/
-typedef struct task_data_t task_data_t;
+/* Argument structures for tasks that need parameters -----------------------*/
 
-/* Exported function prototypes ----------------------------------------------*/
-void handle_reset(const task_data_t *task_data);
-void handle_hello(const task_data_t *task_data);
-void handle_version(const task_data_t *task_data);
-void handle_help(const task_data_t *task_data);
-void handle_clear(const task_data_t *task_data);
-void handle_status(const task_data_t *task_data);
-void handle_snooze(const task_data_t *task_data);
+/** Arguments for reset task */
+typedef struct {
+    uint32_t reset_due_ms;
+} reset_args_t;
 
-/* Scheduling function prototypes ---------------------------------------------*/
-void schedule_reset(uint32_t delay_ms);
-void schedule_hello(uint8_t uart_num);
-void schedule_version(void);
-void schedule_help(void);
-void schedule_clear(void);
-void schedule_status(void);
-void schedule_snooze(uint16_t seconds);
+/** Arguments for hello task */
+typedef struct {
+    uint8_t uart_num;
+} hello_args_t;
+
+/** Arguments for snooze task */
+typedef struct {
+    uint16_t seconds;
+} snooze_args_t;
+
+/* Task handler prototypes ---------------------------------------------------*/
+
+void handle_reset(const void *arg);
+void handle_hello(const void *arg);
+void handle_version(const void *arg);
+void handle_help(const void *arg);
+void handle_clear(const void *arg);
+void handle_status(const void *arg);
+void handle_snooze(const void *arg);
 
 #ifdef __cplusplus
 }

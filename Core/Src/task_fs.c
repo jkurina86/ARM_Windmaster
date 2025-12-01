@@ -2,12 +2,12 @@
   ******************************************************************************
   * @file    task_fs.c
   * @brief   Filesystem task handlers implementation
-  * @note    Contains handlers for filesystem-related tasks
+  * @note    Contains handlers for filesystem-related tasks.
+  *          All handlers get paths from filesystem_get_buffers() instead of args.
   ******************************************************************************
   */
 
 #include "task_fs.h"
-#include "tasker.h"
 #include "shell.h"
 #include "filesystem.h"
 
@@ -15,13 +15,11 @@
 
 /**
  * @brief Handle filesystem mount task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (pass NULL)
  */
-void handle_fs_mount(const task_data_t *task_data)
+void handle_fs_mount(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_FS_MOUNT);
+    (void)arg;
     
     shell_print("Mounting file system...\r\n");
     FS_Result_t result = filesystem_mount();
@@ -41,13 +39,11 @@ void handle_fs_mount(const task_data_t *task_data)
 
 /**
  * @brief Handle filesystem unmount task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (pass NULL)
  */
-void handle_fs_unmount(const task_data_t *task_data)
+void handle_fs_unmount(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_FS_UNMOUNT);
+    (void)arg;
     
     shell_print("Unmounting file system...\r\n");
     FS_Result_t result = filesystem_unmount();
@@ -67,13 +63,11 @@ void handle_fs_unmount(const task_data_t *task_data)
 
 /**
  * @brief Handle filesystem df (disk free) task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (pass NULL)
  */
-void handle_fs_df(const task_data_t *task_data)
+void handle_fs_df(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_FS_DF);
+    (void)arg;
     
     shell_print("File System Information:\r\n");
     shell_print("=======================\r\n");
@@ -100,13 +94,11 @@ void handle_fs_df(const task_data_t *task_data)
 
 /**
  * @brief Handle filesystem ls (list directory) task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (pass NULL)
  */
-void handle_fs_ls(const task_data_t *task_data)
+void handle_fs_ls(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_FS_LS);
+    (void)arg;
     
     shell_print("Directory Listing:\r\n");
     shell_print("=================\r\n");
@@ -122,13 +114,11 @@ void handle_fs_ls(const task_data_t *task_data)
 
 /**
  * @brief Handle filesystem cat (read file) task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (paths come from filesystem buffers)
  */
-void handle_fs_cat(const task_data_t *task_data)
+void handle_fs_cat(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_FS_CAT);
+    (void)arg;
     
     FS_Buffers_t *buffers = filesystem_get_buffers();
     
@@ -163,13 +153,11 @@ void handle_fs_cat(const task_data_t *task_data)
 
 /**
  * @brief Handle filesystem write task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (paths come from filesystem buffers)
  */
-void handle_fs_write(const task_data_t *task_data)
+void handle_fs_write(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_FS_WRITE);
+    (void)arg;
     
     FS_Buffers_t *buffers = filesystem_get_buffers();
     
@@ -205,13 +193,11 @@ void handle_fs_write(const task_data_t *task_data)
 
 /**
  * @brief Handle filesystem rm (remove file) task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (paths come from filesystem buffers)
  */
-void handle_fs_rm(const task_data_t *task_data)
+void handle_fs_rm(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_FS_RM);
+    (void)arg;
     
     FS_Buffers_t *buffers = filesystem_get_buffers();
     
@@ -249,13 +235,11 @@ void handle_fs_rm(const task_data_t *task_data)
 
 /**
  * @brief Handle filesystem mkdir (make directory) task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (paths come from filesystem buffers)
  */
-void handle_fs_mkdir(const task_data_t *task_data)
+void handle_fs_mkdir(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_FS_MKDIR);
+    (void)arg;
     
     FS_Buffers_t *buffers = filesystem_get_buffers();
     
@@ -290,13 +274,11 @@ void handle_fs_mkdir(const task_data_t *task_data)
 
 /**
  * @brief Handle filesystem rmdir (remove directory) task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (paths come from filesystem buffers)
  */
-void handle_fs_rmdir(const task_data_t *task_data)
+void handle_fs_rmdir(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_FS_RMDIR);
+    (void)arg;
     
     FS_Buffers_t *buffers = filesystem_get_buffers();
     
@@ -334,13 +316,11 @@ void handle_fs_rmdir(const task_data_t *task_data)
 
 /**
  * @brief Handle filesystem cp (copy file) task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (paths come from filesystem buffers)
  */
-void handle_fs_cp(const task_data_t *task_data)
+void handle_fs_cp(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_FS_CP);
+    (void)arg;
     
     FS_Buffers_t *buffers = filesystem_get_buffers();
     
@@ -376,106 +356,4 @@ void handle_fs_cp(const task_data_t *task_data)
     buffers->filename[0] = '\0';      /* Clear source filename buffer */
     buffers->dest_filename[0] = '\0'; /* Clear destination filename buffer */
     shell_print(SHELL_PROMPT);
-}
-
-/* Scheduling Functions ------------------------------------------------------*/
-
-/**
- * @brief Schedule a file system mount task
- * @param None
- * @retval None
- */
-void schedule_fs_mount(void)
-{
-    tasker_schedule_task(TASK_FS_MOUNT, NULL);
-}
-
-/**
- * @brief Schedule a file system unmount task
- * @param None
- * @retval None
- */
-void schedule_fs_unmount(void)
-{
-    tasker_schedule_task(TASK_FS_UNMOUNT, NULL);
-}
-
-/**
- * @brief Schedule a df task
- * @param None
- * @retval None
- */
-void schedule_fs_df(void)
-{
-    tasker_schedule_task(TASK_FS_DF, NULL);
-}
-
-/**
- * @brief Schedule an ls task
- * @param None
- * @retval None
- */
-void schedule_fs_ls(void)
-{
-    tasker_schedule_task(TASK_FS_LS, NULL);
-}
-
-/**
- * @brief Schedule a cat task
- * @param None
- * @retval None
- */
-void schedule_fs_cat(void)
-{
-    tasker_schedule_task(TASK_FS_CAT, NULL);
-}
-
-/**
- * @brief Schedule a write task
- * @param None
- * @retval None
- */
-void schedule_fs_write(void)
-{
-    tasker_schedule_task(TASK_FS_WRITE, NULL);
-}
-
-/**
- * @brief Schedule an rm task
- * @param None
- * @retval None
- */
-void schedule_fs_rm(void)
-{
-    tasker_schedule_task(TASK_FS_RM, NULL);
-}
-
-/**
- * @brief Schedule a mkdir task
- * @param None
- * @retval None
- */
-void schedule_fs_mkdir(void)
-{
-    tasker_schedule_task(TASK_FS_MKDIR, NULL);
-}
-
-/**
- * @brief Schedule an rmdir task
- * @param None
- * @retval None
- */
-void schedule_fs_rmdir(void)
-{
-    tasker_schedule_task(TASK_FS_RMDIR, NULL);
-}
-
-/**
- * @brief Schedule a cp task
- * @param None
- * @retval None
- */
-void schedule_fs_cp(void)
-{
-    tasker_schedule_task(TASK_FS_CP, NULL);
 }

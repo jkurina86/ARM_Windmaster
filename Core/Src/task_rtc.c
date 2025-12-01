@@ -7,7 +7,6 @@
   */
 
 #include "task_rtc.h"
-#include "tasker.h"
 #include "shell.h"
 #include "ab-rtcmc-rtc.h"
 #include "systime.h"
@@ -15,16 +14,13 @@
 
 /* Public functions ----------------------------------------------------------*/
 
-/* Shell Commands */
 /**
  * @brief Handle RTC timer status task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (pass NULL)
  */
-void handle_rtc_timer_status(const task_data_t *task_data)
+void handle_rtc_timer_status(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_RTC_TIMER_STATUS);
+    (void)arg;
     
     RTC_Timer_t timer;
     RTC_Status_t status = RTC_GetTimer(&timer);
@@ -70,13 +66,11 @@ void handle_rtc_timer_status(const task_data_t *task_data)
 
 /**
  * @brief Handle RTC timer stop task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (pass NULL)
  */
-void handle_rtc_timer_stop(const task_data_t *task_data)
+void handle_rtc_timer_stop(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_RTC_TIMER_STOP);
+    (void)arg;
     
     /* Disable timer */
     RTC_Status_t status = RTC_EnableTimer(false);
@@ -103,15 +97,12 @@ void handle_rtc_timer_stop(const task_data_t *task_data)
 
 /**
  * @brief Handle RTC timer set task
- * @param task_data: Pointer to task data containing timer duration in seconds
- * @retval None
+ * @param arg Pointer to rtc_timer_args_t containing seconds
  */
-void handle_rtc_timer_set(const task_data_t *task_data)
+void handle_rtc_timer_set(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_RTC_TIMER_SET);
-    
-    uint16_t seconds = task_data->rtc_timer.seconds;
+    const rtc_timer_args_t *args = (const rtc_timer_args_t *)arg;
+    uint16_t seconds = args->seconds;
     
     /* Validate input and provide usage information if invalid */
     if (seconds == 0 || seconds > 65535) {
@@ -162,13 +153,11 @@ void handle_rtc_timer_set(const task_data_t *task_data)
 
 /**
  * @brief Handle RTC temperature read task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (pass NULL)
  */
-void handle_rtc_temp(const task_data_t *task_data)
+void handle_rtc_temp(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_RTC_TEMP);
+    (void)arg;
     
     int8_t temperature;
     RTC_Status_t status = RTC_GetTemperature(&temperature);
@@ -187,13 +176,11 @@ void handle_rtc_temp(const task_data_t *task_data)
 
 /**
  * @brief Handle RTC get time task
- * @param task_data: Pointer to task data (unused for this task)
- * @retval None
+ * @param arg Unused (pass NULL)
  */
-void handle_rtc_gettime(const task_data_t *task_data)
+void handle_rtc_gettime(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_RTC_GETTIME);
+    (void)arg;
     
     /* Create a DateTime struct and call the RTC to fill it */
     RTC_DateTime_t datetime;
@@ -222,16 +209,14 @@ void handle_rtc_gettime(const task_data_t *task_data)
 
 /**
  * @brief Handle shell-driven RTC set time task
- * @param task_data: Pointer to task data containing date/time parameters
- * @retval None
+ * @param arg Pointer to rtc_settime_args_t containing parsed date/time
  */
-void handle_rtc_settime(const task_data_t *task_data)
+void handle_rtc_settime(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_RTC_SETTIME);
+    const rtc_settime_args_t *args = (const rtc_settime_args_t *)arg;
     
-    /* Check argument count and print error if incorrect */
-    if (task_data->rtc_settime.argc != 8) {
+    /* Check if valid args were provided */
+    if (!args->valid) {
         shell_print("Usage: rtc-settime YYYY MM DD HH MM SS WD\r\n");
         shell_print("WD: 1=Sunday, 2=Monday, 3=Tuesday, 4=Wednesday, 5=Thursday, 6=Friday, 7=Saturday\r\n");
         shell_print("Example: rtc-settime 2025 08 28 14 30 00 4\r\n");
@@ -239,14 +224,14 @@ void handle_rtc_settime(const task_data_t *task_data)
         return;
     }
     
-    /* Get parsed parameters from task data */
-    uint16_t year = task_data->rtc_settime.year;
-    uint8_t months = task_data->rtc_settime.months;
-    uint8_t days = task_data->rtc_settime.days;
-    uint8_t hours = task_data->rtc_settime.hours;
-    uint8_t minutes = task_data->rtc_settime.minutes;
-    uint8_t seconds = task_data->rtc_settime.seconds;
-    uint8_t weekdays = task_data->rtc_settime.weekdays;
+    /* Get parsed parameters from args */
+    uint16_t year = args->year;
+    uint8_t months = args->months;
+    uint8_t days = args->days;
+    uint8_t hours = args->hours;
+    uint8_t minutes = args->minutes;
+    uint8_t seconds = args->seconds;
+    uint8_t weekdays = args->weekdays;
     
     /* Validate input */
     if (year < 2000 || year > 2099) {
@@ -316,87 +301,4 @@ void handle_rtc_settime(const task_data_t *task_data)
     }
     
     shell_print(SHELL_PROMPT);
-}
-
-/* Scheduling Functions ------------------------------------------------------*/
-
-/* Shell Commands */
-
-/**
- * @brief Schedule an RTC timer status task
- * @param None
- * @retval None
- */
-void schedule_rtc_timer_status(void)
-{
-    tasker_schedule_task(TASK_RTC_TIMER_STATUS, NULL);
-}
-
-/**
- * @brief Schedule an RTC timer stop task
- * @param None
- * @retval None
- */
-void schedule_rtc_timer_stop(void)
-{
-    tasker_schedule_task(TASK_RTC_TIMER_STOP, NULL);
-}
-
-/**
- * @brief Schedule an RTC timer set task
- * @param seconds: Timer duration in seconds
- * @retval None
- */
-void schedule_rtc_timer_set(uint16_t seconds)
-{
-    task_data_t task_data;
-    task_data.rtc_timer.seconds = seconds;
-    tasker_schedule_task(TASK_RTC_TIMER_SET, &task_data);
-}
-
-/**
- * @brief Schedule an RTC temperature read task
- * @param None
- * @retval None
- */
-void schedule_rtc_temp(void)
-{
-    tasker_schedule_task(TASK_RTC_TEMP, NULL);
-}
-
-/**
- * @brief Schedule an RTC get time task
- * @param None
- * @retval None
- */
-void schedule_rtc_gettime(void)
-{
-    tasker_schedule_task(TASK_RTC_GETTIME, NULL);
-}
-
-/**
- * @brief Schedule an RTC set time task
- * @param argc: Argument count
- * @param argv: Arguments (year, month, day, hour, minute, second, weekday)
- * @retval None
- */
-void schedule_rtc_settime(int argc, char **argv)
-{
-    task_data_t task_data;
-    
-    /* Store argument count for validation */
-    task_data.rtc_settime.argc = (uint8_t)argc;
-    
-    /* Parse and store arguments into task data struct if provided */
-    if (argc >= 8 && argv != NULL) {
-        task_data.rtc_settime.year = (uint16_t)atoi(argv[1]);
-        task_data.rtc_settime.months = (uint8_t)atoi(argv[2]);
-        task_data.rtc_settime.days = (uint8_t)atoi(argv[3]);
-        task_data.rtc_settime.hours = (uint8_t)atoi(argv[4]);
-        task_data.rtc_settime.minutes = (uint8_t)atoi(argv[5]);
-        task_data.rtc_settime.seconds = (uint8_t)atoi(argv[6]);
-        task_data.rtc_settime.weekdays = (uint8_t)atoi(argv[7]);
-    }
-    
-    tasker_schedule_task(TASK_RTC_SETTIME, &task_data);
 }

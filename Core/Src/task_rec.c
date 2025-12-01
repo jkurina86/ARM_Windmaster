@@ -11,51 +11,17 @@
 #include "shell.h"
 #include "tasker.h"
 
-/* Scheduler Functions -------------------------------------------------------*/
-
-/**
-  * @brief Schedule a recorder start task
-  * @param None
-  * @retval None
-  */
-void schedule_rec_start(void)
-{
-    tasker_schedule_task(TASK_REC_START, NULL);
-}
-
-/**
-  * @brief Schedule a recorder stop task
-  * @param None
-  * @retval None
-  */
-void schedule_rec_stop(void)
-{
-    tasker_schedule_task(TASK_REC_STOP, NULL);
-}
-
-/**
-  * @brief Schedule a recorder statistics task
-  * @param None
-  * @retval None
-  */
-void schedule_rec_stats(void)
-{
-    tasker_schedule_task(TASK_REC_STATS, NULL);
-}
-
 /* Task Handler Functions ----------------------------------------------------*/
 
 /**
   * @brief Start recording task handler
-  * @param task_data: Pointer to task data (unused for this task)
-  * @retval None
+  * @param arg Unused (pass NULL)
   * @note Called from main loop via tasker
   * @note Shell output BEFORE recorder_start() to avoid UART deadlock
   */
-void handle_rec_start(const task_data_t *task_data)
+void handle_rec_start(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_REC_START);
+    (void)arg;
 
     /* Check if already recording */
     if (recorder_is_recording()) {
@@ -73,14 +39,12 @@ void handle_rec_start(const task_data_t *task_data)
 
 /**
   * @brief Stop recording task handler
-  * @param task_data: Pointer to task data (unused for this task)
-  * @retval None
+  * @param arg Unused (pass NULL)
   * @note Called from main loop via tasker
   */
-void handle_rec_stop(const task_data_t *task_data)
+void handle_rec_stop(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_REC_STOP);
+    (void)arg;
 
     /* Check if recording */
     if (!recorder_is_recording()) {
@@ -94,7 +58,7 @@ void handle_rec_stop(const task_data_t *task_data)
     shell_print("Recorder stopped!\r\n");
 
     /* Final stats */
-    schedule_rec_stats();
+    tasker_enqueue(handle_rec_stats, NULL, 0);
 
     /* Clear stats */
     recorder_clear_stats();
@@ -104,14 +68,12 @@ void handle_rec_stop(const task_data_t *task_data)
 
 /**
   * @brief Display recorder statistics task handler
-  * @param task_data: Pointer to task data (unused for this task)
-  * @retval None
+  * @param arg Unused (pass NULL)
   * @note Called from main loop via tasker
   */
-void handle_rec_stats(const task_data_t *task_data)
+void handle_rec_stats(const void *arg)
 {
-    /* Clear task flag first */
-    tasker_clear_task_pending(TASK_REC_STATS);
+    (void)arg;
     
     /* Get statistics from recorder */
     recorder_stats_t stats = recorder_get_stats();

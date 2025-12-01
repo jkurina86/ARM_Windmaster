@@ -1,8 +1,8 @@
 /**
   ******************************************************************************
   * @file    tasker.h
-  * @brief   Task scheduler header file
-  * @note    Simple task scheduler for command execution
+  * @brief   Simplified task scheduler using function pointer queue
+  * @note    Tasks are queued as function pointers with inline argument storage
   ******************************************************************************
   */
 #ifndef INC_TASKER_H_
@@ -14,120 +14,58 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
-
-#include "task_gen.h"
-#include "task_fs.h"
-#include "task_rtc.h"
-#include "task_rec.h"
 
 /* Exported types ------------------------------------------------------------*/
 
-/* Task types enum */
-typedef enum {
-    TASK_NONE = 0,
-    
-    /* General Tasks */
-    TASK_RESET,
-    TASK_HELLO,
-    TASK_VERSION,
-    TASK_HELP,
-    TASK_CLEAR,
-    TASK_STATUS,
-    TASK_SNOOZE,
-    
-    /* Filesystem Tasks */
-    TASK_FS_MOUNT,
-    TASK_FS_UNMOUNT,
-    TASK_FS_DF,
-    TASK_FS_LS,
-    TASK_FS_CAT,
-    TASK_FS_WRITE,
-    TASK_FS_RM,
-    TASK_FS_MKDIR,
-    TASK_FS_RMDIR,
-    TASK_FS_CP,
-    
-    /* RTC Tasks */
-    TASK_RTC_TIMER_STATUS,
-    TASK_RTC_TIMER_STOP,
-    TASK_RTC_TIMER_SET,
-    TASK_RTC_TEMP,
-    TASK_RTC_GETTIME,
-    TASK_RTC_SETTIME,
-    
-    /* Recorder Tasks */
-    TASK_REC_START,
-    TASK_REC_STOP,
-    TASK_REC_STATS,
-
-    TASK_MAX
-} task_type_t;
-
-/* Task data structure for passing parameters */
-typedef struct task_data_t {
-    /* Union to hold generic task data, it's only as big as the largest member in memory */
-    union {
-        /* For reset task */
-        struct {
-            uint32_t reset_due_ms;
-        } reset;
-        
-        /* For hello task */
-        struct {
-            uint8_t uart_num;
-        } hello;
-        
-        /* For RTC timer set task */
-        struct {
-            uint16_t seconds;
-        } rtc_timer;
-        
-        /* For RTC set time task */
-        struct {
-            uint16_t year;          /* Full year YYYY */
-            uint8_t months;         /* 1-12 */
-            uint8_t days;           /* 1-31 */
-            uint8_t hours;          /* 0-23 */
-            uint8_t minutes;        /* 0-59 */
-            uint8_t seconds;        /* 0-59 */
-            uint8_t weekdays;       /* 1-7 (1=Sunday) */
-            uint8_t argc;           /* Argument count for validation */
-        } rtc_settime;
-
-        /* For snooze task */
-        struct {
-            uint16_t seconds;
-        } snooze;
-    };
-} task_data_t;
-
-
-/* Function pointer type for task handlers. Take a const pointer to task data and return void. */
-typedef void (*task_handler_t)(const task_data_t *);
-
-/* Descriptor for a task in the scheduler table. */
-typedef struct {
-    /* Pointer to the function that handles the task. */
-    task_handler_t handler;  
-    /* Flag: 1 to clear task after execution, 0 to leave pending. */
-    uint8_t auto_clear;
-} task_descriptor_t;
+/**
+ * @brief Task function signature
+ * @param arg Pointer to argument data (task-specific, may be NULL)
+ */
+typedef void (*task_fn_t)(const void *arg);
 
 /* Exported constants --------------------------------------------------------*/
 
-/* Exported variables --------------------------------------------------------*/
+/** Maximum bytes for inline task argument storage */
+#define TASK_ARG_SIZE 16
+
+/** Task queue length (must be power of 2) */
+#define TASK_QUEUE_LEN 16
 
 /* Exported function prototypes ----------------------------------------------*/
 
+/**
+ * @brief Initialize the task scheduler
+ */
 void tasker_init(void);
-void tasker_run(void);
-void tasker_schedule_task(task_type_t task_type, const task_data_t *task_data);
-uint8_t tasker_get_pending(task_type_t task_type);
 
-/* Task array access functions for task modules */
-void tasker_clear_task_pending(task_type_t task_type);
-const task_data_t* tasker_get_task_data(task_type_t task_type);
+/**
+ * @brief Execute all pending tasks in queue order
+ * @note Call this from main loop
+ */
+void tasker_run(void);
+
+/**
+ * @brief Enqueue a task for deferred execution
+ * @param fn      Function to call (must not be NULL)
+ * @param arg     Pointer to argument data (copied into queue, may be NULL)
+ * @param arg_len Size of argument data in bytes (0 if arg is NULL)
+ * @retval true if successfully enqueued, false if queue full
+ */
+bool tasker_enqueue(task_fn_t fn, const void *arg, size_t arg_len);
+
+/**
+ * @brief Check if task queue is empty
+ * @retval true if no pending tasks, false otherwise
+ */
+bool tasker_is_empty(void);
+
+/**
+ * @brief Get number of pending tasks in queue
+ * @retval Number of tasks waiting to be executed
+ */
+uint8_t tasker_pending_count(void);
 
 #ifdef __cplusplus
 }
