@@ -27,8 +27,8 @@ extern "C" {
 /* Exported Constants --------------------------------------------------------*/
 
 /* Physical constants */
-#define FLUX_GRAVITY            9.80665f    /* Gravitational acceleration [m/s²] */
-#define FLUX_RHO_AIR            1.225f      /* Air density at sea level [kg/m³] */
+#define FLUX_GRAVITY            9.80665f    /* Gravitational acceleration [m/s^2] */
+#define FLUX_RHO_AIR            1.225f      /* Air density at sea level [kg/m^3] */
 #define FLUX_CP_AIR             1005.0f     /* Specific heat capacity of air [J/(kg·K)] */
 
 /* System geometry - IMU to anemometer offset vector R [m] */
@@ -90,8 +90,8 @@ typedef struct {
     float psi_lp;       /* Low-pass yaw (from compass) [rad] */
     
     /* Filter coefficients (calculated from cutoff frequency) */
-    float alpha;        /* Low-pass filter coefficient α = dt/(τ + dt) */
-    float beta;         /* High-pass coefficient β = 1 - α */
+    float alpha;        /* Low-pass filter coefficient alpha = dt/(tau + dt) */
+    float beta;         /* High-pass coefficient beta = 1 - alpha */
     
     /* Previous values for filtering */
     float phi_prev;
@@ -106,7 +106,7 @@ typedef struct {
  */
 typedef struct {
     Vec3f_t vel_hp;         /* High-pass filtered velocity [m/s] */
-    Vec3f_t acc_prev;       /* Previous acceleration [m/s²] */
+    Vec3f_t acc_prev;       /* Previous acceleration [m/s^2] */
     Vec3f_t vel_raw;        /* Integrated velocity before HP filter */
     float alpha;            /* Filter coefficient */
     bool initialized;
@@ -177,7 +177,7 @@ typedef struct {
     
     /* Configuration */
     float filter_cutoff_hz;         /* Complementary filter cutoff [Hz] */
-    float rho_air;                  /* Air density [kg/m³] */
+    float rho_air;                  /* Air density [kg/m^3] */
     
     /* Position vector R (IMU to anemometer) */
     Vec3f_t R;
@@ -223,7 +223,7 @@ typedef struct {
  * @brief Initialize the flux calculation module
  * @param fc Pointer to FluxCalc_t state structure
  * @param filter_cutoff_hz Complementary filter cutoff frequency [Hz]
- * @param rho_air Air density [kg/m³], use 0 for default (1.225)
+ * @param rho_air Air density [kg/m^3], use 0 for default (1.225)
  */
 void flux_init(FluxCalc_t *fc, float filter_cutoff_hz, float rho_air);
 
@@ -260,10 +260,10 @@ void flux_set_lever_arm(FluxCalc_t *fc, float r_x, float r_y, float r_z);
  * @param fc Pointer to FluxCalc_t state structure
  * @param wind_obs Observed wind vector from anemometer [m/s] in platform frame
  * @param gyro Angular velocity from IMU [rad/s] in platform frame
- * @param accel Acceleration from IMU [m/s²] in platform frame
+ * @param accel Acceleration from IMU [m/s^2] in platform frame
  * @param compass_heading Compass heading (yaw) [rad], positive CCW from North
  * @param gps_vel GPS-derived velocity [m/s] in Earth frame (NED or ENU)
- * @param temp Virtual temperature [°C or K]
+ * @param temp Virtual temperature [deg]
  */
 void flux_process_sample(FluxCalc_t *fc,
                          const Vec3f_t *wind_obs,
@@ -297,7 +297,7 @@ FluxResults_t flux_compute_results(const FluxCalc_t *fc);
 /**
  * @brief Update streamwise rotation based on current mean wind
  * @param fc Pointer to FluxCalc_t state structure
- * @note Call this periodically (e.g., every averaging period) to update rotation
+ * @note Call this periodically to update rotation
  */
 void flux_update_streamwise_rotation(FluxCalc_t *fc);
 
@@ -306,7 +306,7 @@ void flux_update_streamwise_rotation(FluxCalc_t *fc);
 /**
  * @brief Build rotation matrix from Euler angles
  * @param euler Pointer to Euler angles structure
- * @return 3x3 rotation matrix (platform → Earth)
+ * @return 3x3 rotation matrix (platform to Earth)
  */
 RotMatrix_t flux_euler_to_matrix(const EulerAngles_t *euler);
 
@@ -322,7 +322,7 @@ Vec3f_t flux_rotate_vector(const RotMatrix_t *R, const Vec3f_t *v);
  * @brief Compute cross product of two vectors
  * @param a Pointer to first vector
  * @param b Pointer to second vector
- * @return Cross product a × b
+ * @return Cross product a x b
  */
 Vec3f_t flux_cross_product(const Vec3f_t *a, const Vec3f_t *b);
 

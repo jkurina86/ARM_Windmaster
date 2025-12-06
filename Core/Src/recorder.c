@@ -15,14 +15,15 @@
 /* Definitions ------------------------------------------------------------------*/
 #define WM_LEN 23
 #define VN_LEN 86
-#define WM_Q_LEN 64 /* Must be power of two */
-#define VN_Q_LEN 64 /* Must be power of two */
-#define RECORD_BUFFER_SIZE 4096  
+#define WM_Q_LEN 16 /* Must be power of two, ~800ms buffer @20Hz */
+#define VN_Q_LEN 16 /* Must be power of two, ~320ms buffer @50Hz */
+#define RECORD_BUFFER_SIZE 4096
 #define MAX_RECORDS_PER_SERVICE 32  /* 32*128 = 4KB, Only one full buffer will be processed at a time at most. */
+#define MAX_OFFSET_MS 10  /* 10ms tolerance for nearest-neighbor pairing */
 
-/* Queue Structures */
-static WM_QueueEntry_t wm_queue[WM_Q_LEN];
-static VN_QueueEntry_t vn_queue[VN_Q_LEN];
+/* Queue Structures, location in RAM2 specified in linker script */
+static WM_QueueEntry_t wm_queue[WM_Q_LEN] __attribute__((section(".queue_wm")));
+static VN_QueueEntry_t vn_queue[VN_Q_LEN] __attribute__((section(".queue_vn")));
 
 /* Queue indices */
 static uint8_t wm_q_head = 0;
@@ -55,7 +56,7 @@ static uint8_t vn_queue_max = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 static void flip_buffers(void);
-static Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntry_t *wm_entry);
+static Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntry_t *wm_entry, int16_t timing_offset_ms);
 static uint8_t get_queue_count(uint8_t head, uint8_t tail, uint8_t len);
 
 
@@ -154,9 +155,8 @@ void recorder_stop(void) {
 
 }
 
-/* @brief Queue a WindMaster packet for recording
+/* @brief Queue a WindMaster packet for recording with timestamp
  * @param pkt: Pointer to WM_Packet_t structure with WindMaster data
- * @param t_ms: Timestamp in milliseconds
  * @retval None
   */
 void recorder_queue_wm(const WM_Packet_t *pkt)
@@ -171,6 +171,9 @@ void recorder_queue_wm(const WM_Packet_t *pkt)
     return;
   }
 
+  /* Capture arrival timestamp */
+  systime_snapshot(&wm_queue[wm_q_head].timestamp_s, &wm_queue[wm_q_head].timestamp_ms);
+
   /* Enqueue the packet */
   wm_queue[wm_q_head].wm_packet = *pkt;
   /* Advance head pointer */
@@ -184,9 +187,8 @@ void recorder_queue_wm(const WM_Packet_t *pkt)
   }
 }
 
-/* @brief Queue a VectorNav packet for recording
+/* @brief Queue a VectorNav packet for recording with timestamp
  * @param pkt: Pointer to VN_Packet_t structure with IMU data
- * @param t_ms: Timestamp in milliseconds
  * @retval None
   */
 void recorder_queue_vn(const VN_Packet_t *pkt)
@@ -200,6 +202,9 @@ void recorder_queue_vn(const VN_Packet_t *pkt)
     vn_drops++;
     return;
   }
+
+  /* Capture arrival timestamp */
+  systime_snapshot(&vn_queue[vn_q_head].timestamp_s, &vn_queue[vn_q_head].timestamp_ms);
 
   /* Enqueue the packet */
   vn_queue[vn_q_head].vn_packet = *pkt;
@@ -225,53 +230,109 @@ void recorder_service(void) {
   wm_drain_and_queue();
   vn_drain_and_queue();
 
-  /* Process up to MAX_RECORDS_PER_SERVICE pairs and then yield to main loop */
+  /* Process up to MAX_RECORDS_PER_SERVICE pairs using nearest-neighbor matching */
   uint8_t records_processed = 0;
 
-  while (wm_q_tail != wm_q_head &&
-         vn_q_tail != vn_q_head &&
-         records_processed < MAX_RECORDS_PER_SERVICE) {
+  /* WindMaster-driven pairing: process WM packets in order, find nearest VN match */
+  while (wm_q_tail != wm_q_head && records_processed < MAX_RECORDS_PER_SERVICE) {
 
-    /* Pointers to current queue entries */
-    WM_QueueEntry_t *wm = &wm_queue[wm_q_tail];
-    VN_QueueEntry_t *vn = &vn_queue[vn_q_tail];
+    /* Get next WindMaster packet (always process in order) */
+    WM_QueueEntry_t *wm_entry = &wm_queue[wm_q_tail];
 
-    /* Pair the WindMaster and VectorNav data */
-    Recorder_Data_t record = build_record(vn, wm);
+    /* Convert WM timestamp to total milliseconds (32-bit arithmetic) */
+    int32_t wm_time_ms = (int32_t)(wm_entry->timestamp_s % 10000U) * 1000 + wm_entry->timestamp_ms;
 
-    /* Copy the record into the active buffer at the current position */
-    Recorder_Data_t* dest = (Recorder_Data_t*)(active_buffer + (active_buf_index * sizeof(Recorder_Data_t)));
-    memcpy(dest, &record, sizeof(Recorder_Data_t));
+    /* Search VectorNav queue for nearest neighbor */
+    int8_t best_vn_idx = -1;
+    uint32_t min_offset = UINT32_MAX;
 
-    active_buf_index++;
-    records_processed++;
+    uint8_t vn_idx = vn_q_tail;
+    while (vn_idx != vn_q_head) {
+      VN_QueueEntry_t *vn_entry = &vn_queue[vn_idx];
 
-    /* Dequeue both packets (advance tail pointers) */
-    wm_q_tail = (wm_q_tail + 1) & (WM_Q_LEN - 1);
-    vn_q_tail = (vn_q_tail + 1) & (VN_Q_LEN - 1);
+      /* Convert VN timestamp to total milliseconds (32-bit arithmetic) */
+      int32_t vn_time_ms = (int32_t)(vn_entry->timestamp_s % 10000U) * 1000 + vn_entry->timestamp_ms;
 
-    /* Check if active buffer is full (32 records = 4KB) */
-    if (active_buf_index >= 32) {
-      /* Buffer is full, so swap the active buffer */
-      flip_buffers();
-
-      /* Flush the full buffer to the SD card */
-      uint32_t bytes_to_write = RECORD_BUFFER_SIZE;
-      uint32_t bytes_written = 0;
-
-      while (bytes_written < bytes_to_write) {
-        UINT bw;
-        FRESULT res = f_write(&log_fil, flush_buffer + bytes_written, bytes_to_write - bytes_written, &bw);
-        if (res != FR_OK) {
-          shell_printf("[REC] ERROR: File write failed (code %d)! Aborting.\r\n", res);
-          break;
-        }
-        bytes_written += bw;
+      /* Calculate absolute time difference */
+      int32_t diff_ms = wm_time_ms - vn_time_ms;
+      uint32_t offset_ms;
+      if (diff_ms >= 0) {
+        offset_ms = (uint32_t)diff_ms;
+      } else {
+        offset_ms = (uint32_t)(-diff_ms);
       }
 
-      flush_pending = false;
+      /* Track closest match */
+      if (offset_ms < min_offset) {
+        min_offset = offset_ms;
+        best_vn_idx = vn_idx;
+      }
 
-      /* After SD write, exit to main loop */
+      /* Early exit if VN is too far in the future */
+      if (diff_ms < -(int32_t)MAX_OFFSET_MS) {
+        break;  // VN queue is sorted by time, no need to search further
+      }
+
+      vn_idx = (vn_idx + 1) & (VN_Q_LEN - 1);
+    }
+
+    /* Check if match found within tolerance */
+    if (best_vn_idx >= 0 && min_offset <= MAX_OFFSET_MS) {
+      /* Build record with matched pair */
+      VN_QueueEntry_t *vn_entry = &vn_queue[best_vn_idx];
+
+      /* Calculate signed timing offset for recording */
+      int32_t vn_time_ms = (int32_t)(vn_entry->timestamp_s % 10000U) * 1000 + vn_entry->timestamp_ms;
+      int16_t timing_offset_ms = (int16_t)(wm_time_ms - vn_time_ms);
+
+      Recorder_Data_t record = build_record(vn_entry, wm_entry, timing_offset_ms);
+
+      /* Copy the record into the active buffer */
+      Recorder_Data_t* dest = (Recorder_Data_t*)(active_buffer + (active_buf_index * sizeof(Recorder_Data_t)));
+      memcpy(dest, &record, sizeof(Recorder_Data_t));
+
+      active_buf_index++;
+      records_processed++;
+
+      /* Dequeue matched WindMaster packet */
+      wm_q_tail = (wm_q_tail + 1) & (WM_Q_LEN - 1);
+
+      /* Remove matched VN packet and all older packets */
+      uint8_t vn_discard_idx = vn_q_tail;
+      while (vn_discard_idx != best_vn_idx) {
+        vn_discard_idx = (vn_discard_idx + 1) & (VN_Q_LEN - 1);
+        vn_drops++;  // Count discarded older VN packets
+      }
+      vn_q_tail = (best_vn_idx + 1) & (VN_Q_LEN - 1);  // Advance past matched packet
+
+      /* Check if active buffer is full (32 records = 4KB) */
+      if (active_buf_index >= 32) {
+        /* Buffer is full, so swap the active buffer */
+        flip_buffers();
+
+        /* Flush the full buffer to the SD card */
+        uint32_t bytes_to_write = RECORD_BUFFER_SIZE;
+        uint32_t bytes_written = 0;
+
+        while (bytes_written < bytes_to_write) {
+          UINT bw;
+          FRESULT res = f_write(&log_fil, flush_buffer + bytes_written, bytes_to_write - bytes_written, &bw);
+          if (res != FR_OK) {
+            shell_printf("[REC] ERROR: File write failed (code %d)! Aborting.\r\n", res);
+            break;
+          }
+          bytes_written += bw;
+        }
+
+        flush_pending = false;
+
+        /* After SD write, exit to main loop */
+        break;
+      }
+
+    } else {
+      /* No match found - WM packet is too old or VN queue empty */
+      /* Wait for more VN packets to arrive */
       break;
     }
   }
@@ -293,11 +354,12 @@ static void flip_buffers(void) {
 }
 
 /** @brief  Build a data record from the given VN and WM data
-  * @param  vn_data: Pointer to VN_Packet_t structure with IMU data
-  * @param  wm_data: Pointer to WM_Packet_t structure with WindMaster data
+  * @param  vn_entry: Pointer to VN_QueueEntry_t structure with IMU data and timestamp
+  * @param  wm_entry: Pointer to WM_QueueEntry_t structure with WindMaster data and timestamp
+  * @param  timing_offset_ms: Signed timing offset (WM timestamp - VN timestamp) in milliseconds
   * @retval Recorder_Data_t: Filled recorder data structure
   */
-Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntry_t *wm_entry) {
+Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntry_t *wm_entry, int16_t timing_offset_ms) {
   /* Create and zero-initialize a new record */
   Recorder_Data_t record;
   memset(&record, 0, sizeof(Recorder_Data_t));
@@ -305,7 +367,7 @@ Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntr
   /* Give it a magic number and log index */
   record.magic_number = 0xFACEFACE;
   record.log_index = record_index++;
-  
+
   /* Use the systime snapshot for timestamping */
   systime_snapshot(&record.epoch_seconds, &record.ms);
 
@@ -335,6 +397,7 @@ Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntr
   record.W_axis_speed = wm_data->W_axis_speed;
   record.SoS = wm_data->SoS;
   record.Temp = wm_data->Temp;
+  record.timing_offset_ms = timing_offset_ms;
 
   return record;
 }

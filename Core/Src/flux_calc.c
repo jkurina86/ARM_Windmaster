@@ -29,7 +29,7 @@
 #define TWO_PI_F        6.28318530717958647693f
 #define DEG_TO_RAD_F    (PI_F / 180.0f)
 #define RAD_TO_DEG_F    (180.0f / PI_F)
-#define EPSILON         1e-10f      /* Small value for division safety */
+#define MINIMUM_MAG     1e-10f      /* Small value for division safety */
 
 /* Private Function Prototypes -----------------------------------------------*/
 static void init_complementary_filter(ComplementaryFilter_t *cf, float cutoff_hz);
@@ -130,8 +130,13 @@ void flux_set_filter_cutoff(FluxCalc_t *fc, float cutoff_hz)
 }
 
 /**
- * @brief Set the IMU to anemometer offset vector R
- */
+  * @brief Set the IMU to anemometer offset vector R
+  * @param r_x X-component of lever arm (m)
+  * @param r_y Y-component of lever arm (m)
+  * @param r_z Z-component of lever arm (m)
+  * @retval None
+  * @note Intended to be called during system initialization only
+  */
 void flux_set_lever_arm(FluxCalc_t *fc, float r_x, float r_y, float r_z)
 {
     if (fc == NULL) return;
@@ -312,7 +317,7 @@ FluxResults_t flux_compute_results(const FluxCalc_t *fc)
     
     /* Mean flow tilt angle (deviation from horizontal) */
     float horiz_speed = sqrtf(mean_u * mean_u + mean_v * mean_v);
-    if (horiz_speed > EPSILON) {
+    if (horiz_speed > MINIMUM_MAG) {
         results.tilt_mean = flux_rad_to_deg(atanf(mean_w / horiz_speed));
     }
     
@@ -346,10 +351,10 @@ void flux_update_streamwise_rotation(FluxCalc_t *fc)
     fc->stream_rot.cos_alpha = cosf(alpha);
     
     /* Horizontal wind magnitude after first rotation */
-    float U_horiz = sqrtf(mean_u * mean_u + mean_v * mean_v);
+    float U_mag = sqrtf(mean_u * mean_u + mean_v * mean_v);
     
-    /* Vertical tilt angle: beta = atan2(mean_w, U_horiz) */
-    float beta = atan2f(mean_w, U_horiz);
+    /* Vertical tilt angle: beta = atan2(mean_w, U_mag) */
+    float beta = atan2f(mean_w, U_mag);
     fc->stream_rot.sin_beta = sinf(beta);
     fc->stream_rot.cos_beta = cosf(beta);
     
@@ -362,44 +367,47 @@ void flux_update_streamwise_rotation(FluxCalc_t *fc)
 
 /**
  * @brief Build rotation matrix from Euler angles
- *        
- * Implements the standard aerospace ZYX rotation sequence:
+ * @param euler Pointer to Euler angles (radians)
+ * @retval Rotation matrix
+ * @note Implements the standard aerospace ZYX rotation sequence:
  * R = Rz(psi) * Ry(theta) * Rx(phi)
- *
  * This rotates vectors from platform frame to Earth frame.
  */
 RotMatrix_t flux_euler_to_matrix(const EulerAngles_t *euler)
 {
     RotMatrix_t R;
     
-    float cp = cosf(euler->phi);    /* cos(roll) */
-    float sp = sinf(euler->phi);    /* sin(roll) */
-    float ct = cosf(euler->theta);  /* cos(pitch) */
-    float st = sinf(euler->theta);  /* sin(pitch) */
-    float cy = cosf(euler->psi);    /* cos(yaw) */
-    float sy = sinf(euler->psi);    /* sin(yaw) */
+    float cos_phi = cosf(euler->phi);    /* cos(roll) */
+    float sin_phi = sinf(euler->phi);    /* sin(roll) */
+    float cos_theta = cosf(euler->theta);  /* cos(pitch) */
+    float sin_theta = sinf(euler->theta);  /* sin(pitch) */
+    float cos_psi = cosf(euler->psi);    /* cos(yaw) */
+    float sin_psi = sinf(euler->psi);    /* sin(yaw) */
     
     /* Row 0 */
-    R.m[0][0] = cy * ct;
-    R.m[0][1] = -sy * cp + cy * st * sp;
-    R.m[0][2] = sy * sp + cy * st * cp;
+    R.m[0][0] = cos_psi * cos_theta;
+    R.m[0][1] = -sin_psi * cos_phi + cos_psi * sin_theta * sin_phi;
+    R.m[0][2] = sin_psi * sin_phi + cos_psi * sin_theta * cos_phi;
     
     /* Row 1 */
-    R.m[1][0] = sy * ct;
-    R.m[1][1] = cy * cp + sy * st * sp;
-    R.m[1][2] = sy * st * cp - cy * sp;
+    R.m[1][0] = sin_psi * cos_theta;
+    R.m[1][1] = cos_psi * cos_phi + sin_psi * sin_theta * sin_phi;
+    R.m[1][2] = sin_psi * sin_theta * cos_phi - cos_psi * sin_phi;
     
     /* Row 2 */
-    R.m[2][0] = -st;
-    R.m[2][1] = ct * sp;
-    R.m[2][2] = ct * cp;
+    R.m[2][0] = -sin_theta;
+    R.m[2][1] = cos_theta * sin_phi;
+    R.m[2][2] = cos_theta * cos_phi;
     
     return R;
 }
 
 /**
- * @brief Apply rotation matrix to a vector
- */
+  * @brief Apply rotation matrix to a vector
+  * @param R Pointer to rotation matrix
+  * @param v Pointer to input vector
+  * @retval Rotated vector
+  */
 Vec3f_t flux_rotate_vector(const RotMatrix_t *R, const Vec3f_t *v)
 {
     Vec3f_t result;
@@ -412,11 +420,22 @@ Vec3f_t flux_rotate_vector(const RotMatrix_t *R, const Vec3f_t *v)
 }
 
 /**
- * @brief Compute cross product of two vectors
- */
+  * @brief Compute cross product of two vectors
+  * @param a Pointer to first vector
+  * @param b Pointer to second vector
+  * @retval Cross product vector (a x b)
+  */
 Vec3f_t flux_cross_product(const Vec3f_t *a, const Vec3f_t *b)
 {
     Vec3f_t result;
+
+    /*
+    * Cross product formula:
+    * [x, y, z] = [a.x, a.y, a.z] × [b.x, b.y, b.z]
+    * x = a.y * b.z - a.z * b.y
+    * y = a.z * b.x - a.x * b.z
+    * z = a.x * b.y - a.y * b.x
+    */
     
     result.x = a->y * b->z - a->z * b->y;
     result.y = a->z * b->x - a->x * b->z;
@@ -426,8 +445,11 @@ Vec3f_t flux_cross_product(const Vec3f_t *a, const Vec3f_t *b)
 }
 
 /**
- * @brief Add two vectors
- */
+  * @brief Add two vectors
+  * @param a Pointer to first vector
+  * @param b Pointer to second vector
+  * @retval Sum vector (a + b)
+  */
 Vec3f_t flux_vec_add(const Vec3f_t *a, const Vec3f_t *b)
 {
     Vec3f_t result;
@@ -438,8 +460,11 @@ Vec3f_t flux_vec_add(const Vec3f_t *a, const Vec3f_t *b)
 }
 
 /**
- * @brief Subtract two vectors
- */
+  * @brief Subtract two vectors
+  * @param a Pointer to first vector
+  * @param b Pointer to second vector
+  * @retval Difference vector (a - b)
+  */
 Vec3f_t flux_vec_sub(const Vec3f_t *a, const Vec3f_t *b)
 {
     Vec3f_t result;
@@ -450,8 +475,11 @@ Vec3f_t flux_vec_sub(const Vec3f_t *a, const Vec3f_t *b)
 }
 
 /**
- * @brief Scale a vector by a scalar
- */
+  * @brief Scale a vector by a scalar
+  * @param v Pointer to input vector
+  * @param s Scalar value
+  * @retval Scaled vector (s * v)
+  */
 Vec3f_t flux_vec_scale(const Vec3f_t *v, float s)
 {
     Vec3f_t result;
@@ -462,8 +490,10 @@ Vec3f_t flux_vec_scale(const Vec3f_t *v, float s)
 }
 
 /**
- * @brief Compute magnitude of a vector
- */
+  * @brief Compute magnitude of a vector
+  * @param v Pointer to input vector
+  * @retval Magnitude of the vector
+  */
 float flux_vec_magnitude(const Vec3f_t *v)
 {
     float mag_sq = v->x * v->x + v->y * v->y + v->z * v->z;
@@ -473,37 +503,47 @@ float flux_vec_magnitude(const Vec3f_t *v)
 }
 
 /**
- * @brief Normalize a vector to unit length
- */
+  * @brief Normalize a vector to unit length
+  * @param v Pointer to input vector
+  * @retval Normalized vector
+  */
 Vec3f_t flux_vec_normalize(const Vec3f_t *v)
 {
     float mag = flux_vec_magnitude(v);
-    if (mag < EPSILON) {
+    if (mag < MINIMUM_MAG) {
+        /* Return zero vector if magnitude is too small */
         Vec3f_t zero = {0.0f, 0.0f, 0.0f};
         return zero;
     }
-    return flux_vec_scale(v, 1.0f / mag);
+    float scale = 1.0f / mag;
+    return flux_vec_scale(v, scale);
 }
 
 /**
- * @brief Convert degrees to radians
- */
+  * @brief Convert degrees to radians
+  * @param deg Angle in degrees
+  * @retval Angle in radians
+  */
 float flux_deg_to_rad(float deg)
 {
     return deg * DEG_TO_RAD_F;
 }
 
 /**
- * @brief Convert radians to degrees
- */
+  * @brief Convert radians to degrees
+  * @param rad Angle in radians
+  * @retval Angle in degrees
+  */
 float flux_rad_to_deg(float rad)
 {
     return rad * RAD_TO_DEG_F;
 }
 
 /**
- * @brief Get number of samples in current averaging period
- */
+  * @brief Get number of samples in current averaging period
+  * @param fc Pointer to FluxCalc structure
+  * @retval Number of samples
+  */
 uint32_t flux_get_sample_count(const FluxCalc_t *fc)
 {
     if (fc == NULL) return 0;
@@ -511,8 +551,11 @@ uint32_t flux_get_sample_count(const FluxCalc_t *fc)
 }
 
 /**
- * @brief Check if sufficient samples for valid flux calculation
- */
+  * @brief Check if sufficient samples for valid flux calculation
+  * @param fc Pointer to FluxCalc structure
+  * @param min_samples Minimum required samples
+  * @retval true if sufficient samples, false otherwise
+  */
 bool flux_has_sufficient_samples(const FluxCalc_t *fc, uint32_t min_samples)
 {
     if (fc == NULL) return false;
@@ -524,15 +567,18 @@ bool flux_has_sufficient_samples(const FluxCalc_t *fc, uint32_t min_samples)
  * ============================================================================*/
 
 /**
- * @brief Initialize complementary filter for attitude estimation
- */
+  * @brief Initialize complementary filter for attitude estimation
+  * @param cf Pointer to complementary filter structure
+  * @param cutoff_hz Cutoff frequency in Hz
+  * @retval None
+  */
 static void init_complementary_filter(ComplementaryFilter_t *cf, float cutoff_hz)
 {
     memset(cf, 0, sizeof(ComplementaryFilter_t));
     
     /* Calculate filter coefficients from cutoff frequency
-     * Low-pass: α = dt / (τ + dt), where τ = 1/(2πf_c)
-     * High-pass: β = 1 - α = τ / (τ + dt) */
+     * Low-pass: alpha = dt / (tau + dt), where tau = 1/(2*pi*f_c)
+     * High-pass: beta = 1 - alpha = tau / (tau + dt) */
     float tau = 1.0f / (TWO_PI_F * cutoff_hz);
     cf->alpha = FLUX_DT / (tau + FLUX_DT);
     cf->beta = 1.0f - cf->alpha;
@@ -541,8 +587,11 @@ static void init_complementary_filter(ComplementaryFilter_t *cf, float cutoff_hz
 }
 
 /**
- * @brief Initialize high-pass filter for velocity estimation
- */
+  * @brief Initialize high-pass filter for velocity estimation
+  * @param vf Pointer to velocity high-pass filter structure
+  * @param cutoff_hz Cutoff frequency in Hz
+  * @retval None
+  */
 static void init_velocity_hp_filter(VelocityHPFilter_t *vf, float cutoff_hz)
 {
     memset(vf, 0, sizeof(VelocityHPFilter_t));
@@ -561,12 +610,12 @@ static void init_velocity_hp_filter(VelocityHPFilter_t *vf, float cutoff_hz)
  * - Low-frequency component: tilt from accelerometer + compass heading
  *
  * For pitch and roll:
- *   θ_hp = HP[∫θ̇ dt]  (high-pass filtered integrated gyro)
- *   θ_lp = LP[asin(-ax/g)]  (low-pass filtered accelerometer tilt)
- *   θ = θ_hp + θ_lp
+ *   theta_hp = HP[integral{theta', dt}]  (high-pass filtered integrated gyro)
+ *   theta_lp = LP[asin(-ax/g)]  (low-pass filtered accelerometer tilt)
+ *   theta = theta_hp + theta_lp
  *
  * For yaw:
- *   psi_hp = HP[integral{psi̇' dt}]
+ *   psi_hp = HP[integral{psi̇', dt}]
  *   psi_lp = LP[compass]
  *   psi = psi_hp + psi_lp
  */
@@ -583,7 +632,7 @@ static void update_complementary_filter(ComplementaryFilter_t *cf,
         cf->theta_lp = asinf(ax_norm);
         cf->phi_lp = 0.0f;
         
-        /* Calculate roll if pitch is not ±90° */
+        /* Calculate roll if pitch is not +/- 90 degrees */
         if (fabsf(cf->theta_lp) < (PI_F / 2.0f - 0.1f)) {
             float ay_norm = accel->y / (FLUX_GRAVITY * cosf(cf->theta_lp));
             ay_norm = fmaxf(-1.0f, fminf(1.0f, ay_norm));
@@ -610,7 +659,7 @@ static void update_complementary_filter(ComplementaryFilter_t *cf,
     float d_psi = gyro->z * FLUX_DT;
     
     /* Update high-pass filtered angles
-     * HP filter: y_hp[n] = β * (y_hp[n-1] + dx)
+     * HP filter: y_hp[n] = beta * (y_hp[n-1] + dx)
      * This removes DC drift from integration while keeping high-frequency content */
     cf->phi_hp = cf->beta * (cf->phi_hp + d_phi);
     cf->theta_hp = cf->beta * (cf->theta_hp + d_theta);
@@ -632,7 +681,7 @@ static void update_complementary_filter(ComplementaryFilter_t *cf,
     }
     
     /* Update low-pass filtered angles
-     * LP filter: y_lp[n] = α * x[n] + (1-α) * y_lp[n-1] */
+     * LP filter: y_lp[n] = alpha * x[n] + (1-alpha) * y_lp[n-1] */
     cf->phi_lp = cf->alpha * phi_accel + (1.0f - cf->alpha) * cf->phi_lp;
     cf->theta_lp = cf->alpha * theta_accel + (1.0f - cf->alpha) * cf->theta_lp;
     cf->psi_lp = cf->alpha * compass_heading + (1.0f - cf->alpha) * cf->psi_lp;
@@ -679,9 +728,9 @@ static Vec3f_t compute_platform_velocity_hp(VelocityHPFilter_t *vf,
     vf->vel_raw.z += 0.5f * (accel_no_grav.z + vf->acc_prev.z) * FLUX_DT;
     
     /* High-pass filter the velocity
-     * HP: y[n] = (1-α) * (y[n-1] + x[n] - x_prev[n-1])
+     * HP: y[n] = (1-alpha) * (y[n-1] + x[n] - x_prev[n-1])
      * But since we're filtering integrated velocity:
-     * y_hp = (1-α) * y_hp + (1-α) * dv
+     * y_hp = (1-alpha) * y_hp + (1-alpha) * dv
      * where dv is the change in raw velocity this step */
     float beta = 1.0f - vf->alpha;
     
@@ -745,7 +794,7 @@ static void update_running_stats(FluxStats_t *stats,
  * First rotation: horizontal (yaw) to align mean V = 0
  * Second rotation: vertical (pitch) to align mean W = 0
  *
- * Result: U = Ū + u', V = v', W = w'
+ * Result: U = U_mag + u', V = v', W = w'
  */
 static Vec3f_t apply_streamwise_rotation(const StreamwiseRotation_t *rot,
                                           const Vec3f_t *wind)
@@ -753,17 +802,17 @@ static Vec3f_t apply_streamwise_rotation(const StreamwiseRotation_t *rot,
     Vec3f_t result;
     
     /* First rotation: horizontal (align with mean wind direction)
-     * u1 = u*cos(α) + v*sin(α)
-     * v1 = -u*sin(α) + v*cos(α)
+     * u1 = u*cos(alpha) + v*sin(alpha)
+     * v1 = -u*sin(alpha) + v*cos(alpha)
      * w1 = w */
     float u1 = wind->x * rot->cos_alpha + wind->y * rot->sin_alpha;
     float v1 = -wind->x * rot->sin_alpha + wind->y * rot->cos_alpha;
     float w1 = wind->z;
     
     /* Second rotation: vertical (remove mean vertical component)
-     * u2 = u1*cos(β) + w1*sin(β)
+     * u2 = u1*cos(beta) + w1*sin(beta)
      * v2 = v1
-     * w2 = -u1*sin(β) + w1*cos(β) */
+     * w2 = -u1*sin(beta) + w1*cos(beta) */
     result.x = u1 * rot->cos_beta + w1 * rot->sin_beta;
     result.y = v1;
     result.z = -u1 * rot->sin_beta + w1 * rot->cos_beta;

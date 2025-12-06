@@ -17,7 +17,7 @@
 #include <stdio.h>
 
 /* Private defines -----------------------------------------------------------*/
-#define DMA_BUFFER_SIZE 4096 /* 4 KB for WM sensor data */
+#define DMA_BUFFER_SIZE 1024 /* 1 KB for incoming WM sensor data */
 #define PACKET_SIZE 23
 #define HEADER_SIZE 2
 #define DATA_SIZE 18

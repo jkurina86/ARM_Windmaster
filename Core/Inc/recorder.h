@@ -22,10 +22,14 @@ extern "C" {
 /* Exported Types ------------------------------------------------------------*/
 
 typedef struct {
+  uint32_t timestamp_s;     // Seconds from systime_snapshot()
+  uint16_t timestamp_ms;    // Milliseconds from systime_snapshot() (0-999)
   WM_Packet_t wm_packet;
 } WM_QueueEntry_t;
 
 typedef struct {
+  uint32_t timestamp_s;     // Seconds from systime_snapshot()
+  uint16_t timestamp_ms;    // Milliseconds from systime_snapshot() (0-999)
   VN_Packet_t vn_packet;
 } VN_QueueEntry_t;
 
@@ -56,7 +60,8 @@ typedef struct {
   int16_t W_axis_speed;
   int16_t SoS;
   int16_t Temp;
-  uint8_t footer_padding[20];
+  int16_t timing_offset_ms;   // WM timestamp - VN timestamp (signed, ±10ms max)
+  uint8_t footer_padding[18]; // Reduced from 20 to maintain 128 bytes total
 } Recorder_Data_t;
 
 _Static_assert(sizeof(Recorder_Data_t) == 128, "Recorder_Data_t must remain 128 bytes");

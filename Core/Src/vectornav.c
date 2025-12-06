@@ -20,7 +20,7 @@
 #include <stdbool.h>
 
 /* Private defines -----------------------------------------------------------*/
-#define DMA_BUFFER_SIZE 16384 /* 16 KB for IMU sensor data */
+#define DMA_BUFFER_SIZE 1024 /* 1 KB for incoming IMU sensor data */
 #define PACKET_SIZE 86
 
 /* Private variables ---------------------------------------------------------*/
@@ -101,7 +101,7 @@ void vn_init(void) {
 /** @brief  Start the vectornav
   * @param  None
   * @retval None
-  * @note   Enables VectorNav async mode for 20Hz binary output.
+  * @note   Enables VectorNav async mode for 50Hz binary output (rate divisor = 8).
   *         Disables DMA during command transmission to prevent ASCII echo from polluting binary data buffer.
   */
 void vn_start(void) {
@@ -114,8 +114,8 @@ void vn_start(void) {
             (void)LL_USART_ReceiveData8(USART3);
         }
 
-        /* Enable async mode (20Hz binary output) */
-        send_command("$VNWRG,75,1,20,01,01EA*6441\n");
+        /* Enable async mode (50Hz binary output, divisor = 8) */
+        send_command("$VNWRG,75,1,8,01,01EA*07CF\n");
 
         /* Wait for response */
         HAL_Delay(10);

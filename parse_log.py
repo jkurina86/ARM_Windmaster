@@ -48,15 +48,16 @@ class RecorderData(NamedTuple):
     W_axis_speed: int       # int16_t
     SoS: int                # int16_t (Speed of Sound)
     Temp: int               # int16_t (Temperature)
-    # footer_padding[25] - not parsed
+    timing_offset_ms: int   # int16_t (WM timestamp - VN timestamp, signed ±10ms max)
+    # footer_padding[18] - not parsed (reduced from 20 to maintain 128 bytes)
 
 
 # Struct format string (Little Endian):
 # I = uint32_t, Q = uint64_t, f = float, d = double, h = int16_t, B = uint8_t
-# Format: magic(I) index(I) epoch(I) ms(H) pad(2x) timegps(Q) YPR(3f) Gyro(3f) Lat/Lon/Alt(3d) Vel(3f) Acc(3f) WindMaster(5h)
-RECORD_FORMAT = '<IIIHxxQffffffdddffffffhhhhh'
+# Format: magic(I) index(I) epoch(I) ms(H) pad(2x) timegps(Q) YPR(3f) Gyro(3f) Lat/Lon/Alt(3d) Vel(3f) Acc(3f) WindMaster(6h)
+RECORD_FORMAT = '<IIIHxxQffffffdddffffffhhhhhh'
 RECORD_SIZE = 128
-PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # 106 bytes parsed (22 bytes padding at end)
+PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # 108 bytes parsed (20 bytes padding at end)
 
 MAGIC_NUMBER = 0xFACEFACE
 # GPS epoch is January 6, 1980 (not January 1!)
@@ -234,6 +235,26 @@ def print_statistics(records: List[RecorderData]):
     print(f"  Wind V: [{min(v_speeds)}, {max(v_speeds)}]")
     print(f"  Wind W: [{min(w_speeds)}, {max(w_speeds)}]")
 
+    # Timing offset statistics (nearest-neighbor pairing quality)
+    timing_offsets = [r.timing_offset_ms for r in records]
+    mean_offset = sum(timing_offsets) / len(timing_offsets)
+    abs_offsets = [abs(offset) for offset in timing_offsets]
+    mean_abs_offset = sum(abs_offsets) / len(abs_offsets)
+    max_abs_offset = max(abs_offsets)
+
+    print("\nTiming Quality (Nearest-Neighbor Pairing):")
+    print(f"  Offset (WM-VN): [{min(timing_offsets):+d}, {max(timing_offsets):+d}] ms")
+    print(f"  Mean offset:    {mean_offset:+.2f} ms")
+    print(f"  Mean |offset|:  {mean_abs_offset:.2f} ms")
+    print(f"  Max |offset|:   {max_abs_offset:d} ms")
+
+    # Check if any offsets exceed tolerance
+    out_of_tolerance = [offset for offset in abs_offsets if offset > 10]
+    if out_of_tolerance:
+        print(f"  [WARN] {len(out_of_tolerance)} samples exceed ±10ms tolerance")
+    else:
+        print(f"  [OK] All samples within ±10ms tolerance")
+
 
 def export_csv(records: List[RecorderData], output_path: Path):
     """Export records to CSV file"""
@@ -313,7 +334,11 @@ def export_txt(records: List[RecorderData], output_path: Path):
             f.write("  WindMaster Data:\n")
             f.write(f"    Wind Speed (UVW): {record.U_axis_speed:6d} {record.V_axis_speed:6d} {record.W_axis_speed:6d} (raw)\n")
             f.write(f"    Speed of Sound:   {record.SoS:6d} (raw)\n")
-            f.write(f"    Temperature:      {record.Temp:6d} (raw)\n")
+            f.write(f"    Temperature:      {record.Temp:6d} (raw)\n\n")
+
+            # Timing Quality
+            f.write("  Timing Quality:\n")
+            f.write(f"    Offset (WM - VN): {record.timing_offset_ms:+4d} ms (nearest-neighbor pairing)\n")
 
             f.write("\n")
 
@@ -376,6 +401,7 @@ def main():
             print(f"  YPR: ({record.yaw:.2f}, {record.pitch:.2f}, {record.roll:.2f}) deg")
             print(f"  Wind UVW: ({record.U_axis_speed}, {record.V_axis_speed}, {record.W_axis_speed})")
             print(f"  Position: ({record.latitude:.6f}, {record.longitude:.6f}, {record.altitude:.2f}m)")
+            print(f"  Timing offset (WM-VN): {record.timing_offset_ms:+d} ms")
             print()
     
     # Statistics
