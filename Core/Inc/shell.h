@@ -89,6 +89,7 @@ void cmd_fs_cp(int argc, char **argv);
 void cmd_rec_start(int argc, char **argv);
 void cmd_rec_stop(int argc, char **argv);
 void cmd_rec_stats(int argc, char **argv);
+void cmd_queue_debug(int argc, char **argv);
 
 /* VectorNav Command functions */
 void cmd_vectornav(int argc, char **argv);

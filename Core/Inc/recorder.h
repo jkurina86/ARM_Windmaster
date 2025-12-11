@@ -60,7 +60,7 @@ typedef struct {
   int16_t W_axis_speed;
   int16_t SoS;
   int16_t Temp;
-  int16_t timing_offset_ms;   // WM timestamp - VN timestamp (signed, ±10ms max)
+  int16_t timing_offset_ms;   // WM timestamp - VN timestamp (signed, +/- 25ms max)
   uint8_t footer_padding[18]; // Reduced from 20 to maintain 128 bytes total
 } Recorder_Data_t;
 
@@ -92,6 +92,7 @@ void recorder_service(void);
 recorder_stats_t recorder_get_stats(void);
 void recorder_clear_stats(void);
 bool recorder_is_recording(void);
+void recorder_debug_queue(void);
 
 void recorder_queue_vn(const VN_Packet_t *pkt);
 void recorder_queue_wm(const WM_Packet_t *pkt);

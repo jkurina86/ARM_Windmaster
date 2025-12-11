@@ -74,20 +74,20 @@ void handle_rec_stop(const void *arg)
 void handle_rec_stats(const void *arg)
 {
     (void)arg;
-    
+
     /* Get statistics from recorder */
     recorder_stats_t stats = recorder_get_stats();
-    
+
     shell_print("\r\n");
     shell_print("===============================================\r\n");
     shell_print("       RECORDER STATISTICS\r\n");
     shell_print("===============================================\r\n");
-    
+
     shell_printf("Status: %s\r\n", stats.recording ? "RECORDING" : "STOPPED");
     shell_printf("Records written: %lu\r\n", stats.records_written);
-    shell_printf("Active buffer: %lu/%lu records\r\n", 
+    shell_printf("Active buffer: %lu/%lu records\r\n",
                  stats.active_buffer_records, stats.active_buffer_capacity);
-    
+
     shell_print("\r\n--- Queue Status ---\r\n");
     shell_printf("WindMaster queue: %u/%u entries (%.1f%%)\r\n",
                  stats.wm_queue_count, stats.wm_queue_capacity,
@@ -95,11 +95,11 @@ void handle_rec_stats(const void *arg)
     shell_printf("VectorNav queue:  %u/%u entries (%.1f%%)\r\n",
                  stats.vn_queue_count, stats.vn_queue_capacity,
                  (float)stats.vn_queue_count * 100.0f / stats.vn_queue_capacity);
-    
+
     shell_print("\r\n--- Performance ---\r\n");
     shell_printf("Max WM queue depth: %u\r\n", stats.wm_queue_max);
     shell_printf("Max VN queue depth: %u\r\n", stats.vn_queue_max);
-    
+
     if (stats.wm_drops > 0 || stats.vn_drops > 0) {
         shell_print("\r\nWARNING: Packet drops detected!\r\n");
         shell_printf("WindMaster drops: %lu\r\n", stats.wm_drops);
@@ -107,11 +107,23 @@ void handle_rec_stats(const void *arg)
     } else {
         shell_print("\r\nNo packet drops\r\n");
     }
-    
+
     if (stats.recording) {
         shell_printf("\r\nCurrent log file: %s\r\n", stats.filename);
     }
-    
+
     shell_print("===============================================\r\n");
+    shell_print(SHELL_PROMPT);
+}
+
+/**
+  * @brief Display queue debug information task handler
+  * @param arg Unused (pass NULL)
+  * @note Called from main loop via tasker
+  */
+void handle_queue_debug(const void *arg)
+{
+    (void)arg;
+    recorder_debug_queue();
     shell_print(SHELL_PROMPT);
 }

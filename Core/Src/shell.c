@@ -80,6 +80,7 @@ const shell_command_t shell_commands[] = {
     {"rec-start", "Start data recording", cmd_rec_start},
     {"rec-stop", "Stop data recording", cmd_rec_stop},
     {"rec-stats", "Show recorder statistics", cmd_rec_stats},
+    {"queue-debug", "Show queue timestamps and pairing info", cmd_queue_debug},
 
     {NULL, NULL, NULL} /* End marker */
 };
@@ -682,6 +683,18 @@ void cmd_rec_stats(int argc, char **argv)
 {
     (void)argc; (void)argv; /* Unused args */
     tasker_enqueue(handle_rec_stats, NULL, 0);
+}
+
+/**
+  * @brief Show queue debug information command
+  * @param argc: Argument count
+  * @param argv: Arguments
+  * @retval None
+  */
+void cmd_queue_debug(int argc, char **argv)
+{
+    (void)argc; (void)argv; /* Unused args */
+    tasker_enqueue(handle_queue_debug, NULL, 0);
 }
 
 /* UART Interrupt Callbacks -------------------------------------------------*/

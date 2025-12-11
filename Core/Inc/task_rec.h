@@ -17,6 +17,7 @@ extern "C" {
 void handle_rec_start(const void *arg);
 void handle_rec_stop(const void *arg);
 void handle_rec_stats(const void *arg);
+void handle_queue_debug(const void *arg);
 
 #ifdef __cplusplus
 }

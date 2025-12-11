@@ -248,12 +248,12 @@ def print_statistics(records: List[RecorderData]):
     print(f"  Mean |offset|:  {mean_abs_offset:.2f} ms")
     print(f"  Max |offset|:   {max_abs_offset:d} ms")
 
-    # Check if any offsets exceed tolerance
-    out_of_tolerance = [offset for offset in abs_offsets if offset > 10]
+    # Check if any offsets exceed tolerance (25ms for async sensors)
+    out_of_tolerance = [offset for offset in abs_offsets if offset > 25]
     if out_of_tolerance:
-        print(f"  [WARN] {len(out_of_tolerance)} samples exceed ±10ms tolerance")
+        print(f"  [WARN] {len(out_of_tolerance)} samples exceed ±25ms tolerance")
     else:
-        print(f"  [OK] All samples within ±10ms tolerance")
+        print(f"  [OK] All samples within ±25ms tolerance")
 
 
 def export_csv(records: List[RecorderData], output_path: Path):

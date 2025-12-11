@@ -21,6 +21,7 @@
 #include "adc.h"
 #include "dma.h"
 #include "fatfs.h"
+#include "iwdg.h"
 #include "rtc.h"
 #include "spi.h"
 #include "tim.h"
@@ -148,6 +149,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   MX_RTC_Init();
+  MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
 
   shell_printf("\r\nSystem initializing...\r\n");
@@ -198,25 +200,6 @@ int main(void)
 
   shell_printf("Current timestamp: %s\r\n", timestamp(time_s_now()));
 
-  /* Debug: Check PPS count */
-  uint32_t test_pps_count = systime_get_pps_count();
-  shell_printf("PPS events since init: %u\r\n", test_pps_count);
-
-  /* Debug: Wait a few seconds to gather some PPS events */
-  shell_printf("Waiting 3 seconds to gather PPS events...\r\n");
-  HAL_Delay(3000);
-
-  /* Debug: Check PPS count again */
-  test_pps_count = systime_get_pps_count();
-  shell_printf("PPS events since last check: %u\r\n", test_pps_count);
-  
-  /* Debug: Check if systime has lock and show estimated frequency */
-  if (systime_have_lock()) {
-    shell_printf("Systime has lock. PPM estimate: %d\r\n", systime_ppm_estimate());
-  } else {
-    shell_printf("Systime no lock yet\r\n");
-  }
-
   /* Initialize the filesystem */
   filesystem_init();
 
@@ -260,6 +243,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    /* Kick the Dog (2 second timeout until system reset) */
+    HAL_IWDG_Refresh(&hiwdg);
+
     /* Shell processing and parsing */
     shell_task();
 
@@ -297,9 +283,11 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE|RCC_OSCILLATORTYPE_LSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_HSE
+                              |RCC_OSCILLATORTYPE_LSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.LSEState = RCC_LSE_ON;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 1;

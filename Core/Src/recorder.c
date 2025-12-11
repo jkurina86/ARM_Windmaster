@@ -19,7 +19,7 @@
 #define VN_Q_LEN 16 /* Must be power of two, ~320ms buffer @50Hz */
 #define RECORD_BUFFER_SIZE 4096
 #define MAX_RECORDS_PER_SERVICE 32  /* 32*128 = 4KB, Only one full buffer will be processed at a time at most. */
-#define MAX_OFFSET_MS 10  /* 10ms tolerance for nearest-neighbor pairing */
+#define MAX_OFFSET_MS 25  /* 25ms tolerance for nearest-neighbor pairing (handles phase offset between async sensors) */
 
 /* Queue Structures, location in RAM2 specified in linker script */
 static WM_QueueEntry_t wm_queue[WM_Q_LEN] __attribute__((section(".queue_wm")));
@@ -239,8 +239,8 @@ void recorder_service(void) {
     /* Get next WindMaster packet (always process in order) */
     WM_QueueEntry_t *wm_entry = &wm_queue[wm_q_tail];
 
-    /* Convert WM timestamp to total milliseconds (32-bit arithmetic) */
-    int32_t wm_time_ms = (int32_t)(wm_entry->timestamp_s % 10000U) * 1000 + wm_entry->timestamp_ms;
+    /* Convert WM timestamp to total milliseconds (64-bit to avoid wraparound) */
+    uint64_t wm_time_ms = (uint64_t)wm_entry->timestamp_s * 1000ULL + wm_entry->timestamp_ms;
 
     /* Search VectorNav queue for nearest neighbor */
     int8_t best_vn_idx = -1;
@@ -250,11 +250,13 @@ void recorder_service(void) {
     while (vn_idx != vn_q_head) {
       VN_QueueEntry_t *vn_entry = &vn_queue[vn_idx];
 
-      /* Convert VN timestamp to total milliseconds (32-bit arithmetic) */
-      int32_t vn_time_ms = (int32_t)(vn_entry->timestamp_s % 10000U) * 1000 + vn_entry->timestamp_ms;
+      /* Convert VN timestamp to total milliseconds (64-bit to avoid wraparound) */
+      uint64_t vn_time_ms = (uint64_t)vn_entry->timestamp_s * 1000ULL + vn_entry->timestamp_ms;
 
-      /* Calculate absolute time difference */
-      int32_t diff_ms = wm_time_ms - vn_time_ms;
+      /* Calculate signed time difference (64-bit) */
+      int64_t diff_ms = (int64_t)wm_time_ms - (int64_t)vn_time_ms;
+
+      /* Calculate absolute offset (safe cast since we expect small offsets) */
       uint32_t offset_ms;
       if (diff_ms >= 0) {
         offset_ms = (uint32_t)diff_ms;
@@ -269,7 +271,7 @@ void recorder_service(void) {
       }
 
       /* Early exit if VN is too far in the future */
-      if (diff_ms < -(int32_t)MAX_OFFSET_MS) {
+      if (diff_ms < -(int64_t)MAX_OFFSET_MS) {
         break;  // VN queue is sorted by time, no need to search further
       }
 
@@ -281,9 +283,10 @@ void recorder_service(void) {
       /* Build record with matched pair */
       VN_QueueEntry_t *vn_entry = &vn_queue[best_vn_idx];
 
-      /* Calculate signed timing offset for recording */
-      int32_t vn_time_ms = (int32_t)(vn_entry->timestamp_s % 10000U) * 1000 + vn_entry->timestamp_ms;
-      int16_t timing_offset_ms = (int16_t)(wm_time_ms - vn_time_ms);
+      /* Calculate signed timing offset for recording (64-bit to avoid wraparound) */
+      uint64_t vn_time_ms = (uint64_t)vn_entry->timestamp_s * 1000ULL + vn_entry->timestamp_ms;
+      int64_t timing_offset_full = (int64_t)wm_time_ms - (int64_t)vn_time_ms;
+      int16_t timing_offset_ms = (int16_t)timing_offset_full;  // Safe cast: we verified offset <= 25ms
 
       Recorder_Data_t record = build_record(vn_entry, wm_entry, timing_offset_ms);
 
@@ -422,30 +425,99 @@ recorder_stats_t recorder_get_stats(void)
 {
   /* Create a stats struct */
   recorder_stats_t stats;
-  
+
   /* Populate recorder and buffer state */
   stats.recording = recording;
   stats.records_written = record_index;
   stats.active_buffer_records = active_buf_index;
   stats.active_buffer_capacity = 32;
-  
+
   /* Populate queue state */
   stats.wm_queue_count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
   stats.wm_queue_capacity = WM_Q_LEN;
   stats.vn_queue_count = get_queue_count(vn_q_head, vn_q_tail, VN_Q_LEN);
   stats.vn_queue_capacity = VN_Q_LEN;
-  
+
   /* Populate drop and max queue stats */
   stats.wm_queue_max = wm_queue_max;
   stats.vn_queue_max = vn_queue_max;
   stats.wm_drops = wm_drops;
   stats.vn_drops = vn_drops;
-  
+
   /* Copy filename safely */
   strncpy(stats.filename, filename, sizeof(stats.filename) - 1);
   stats.filename[sizeof(stats.filename) - 1] = '\0';
-  
+
   return stats;
+}
+
+/** @brief Print queue debug information (timestamps and offsets)
+  * @param None
+  * @retval None
+  * @note Shows first 3 entries from each queue to diagnose pairing issues
+  */
+void recorder_debug_queue(void)
+{
+  shell_print("\r\n=== Queue Debug Info ===\r\n");
+
+  /* WindMaster queue */
+  uint8_t wm_count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
+  shell_printf("WM Queue: %u entries (head=%u, tail=%u)\r\n", wm_count, wm_q_head, wm_q_tail);
+
+  if (wm_count > 0) {
+    uint8_t show_count = (wm_count > 3) ? 3 : wm_count;
+    for (uint8_t i = 0; i < show_count; i++) {
+      uint8_t idx = (wm_q_tail + i) & (WM_Q_LEN - 1);
+      shell_printf("  WM[%u]: t=%lu.%03u s\r\n",
+                   idx,
+                   wm_queue[idx].timestamp_s,
+                   wm_queue[idx].timestamp_ms);
+    }
+  } else {
+    shell_print("  (empty)\r\n");
+  }
+
+  /* VectorNav queue */
+  uint8_t vn_count = get_queue_count(vn_q_head, vn_q_tail, VN_Q_LEN);
+  shell_printf("\r\nVN Queue: %u entries (head=%u, tail=%u)\r\n", vn_count, vn_q_head, vn_q_tail);
+
+  if (vn_count > 0) {
+    uint8_t show_count = (vn_count > 3) ? 3 : vn_count;
+    for (uint8_t i = 0; i < show_count; i++) {
+      uint8_t idx = (vn_q_tail + i) & (VN_Q_LEN - 1);
+      shell_printf("  VN[%u]: t=%lu.%03u s\r\n",
+                   idx,
+                   vn_queue[idx].timestamp_s,
+                   vn_queue[idx].timestamp_ms);
+    }
+  } else {
+    shell_print("  (empty)\r\n");
+  }
+
+  /* Calculate offset between first entries if both exist */
+  if (wm_count > 0 && vn_count > 0) {
+    /* Use 64-bit timestamps to avoid wraparound */
+    uint64_t wm_time_ms = (uint64_t)wm_queue[wm_q_tail].timestamp_s * 1000ULL + wm_queue[wm_q_tail].timestamp_ms;
+    uint64_t vn_time_ms = (uint64_t)vn_queue[vn_q_tail].timestamp_s * 1000ULL + vn_queue[vn_q_tail].timestamp_ms;
+    int64_t diff_ms = (int64_t)wm_time_ms - (int64_t)vn_time_ms;
+
+    shell_printf("\r\nFirst entry offset: WM - VN = %lld ms\r\n", diff_ms);
+
+    if (diff_ms < 0) {
+      shell_printf("  (WM is %lld ms BEFORE VN)\r\n", -diff_ms);
+    } else {
+      shell_printf("  (WM is %lld ms AFTER VN)\r\n", diff_ms);
+    }
+
+    uint32_t abs_diff = (diff_ms >= 0) ? (uint32_t)diff_ms : (uint32_t)(-diff_ms);
+    if (abs_diff <= MAX_OFFSET_MS) {
+      shell_printf("  [OK] Within %ums tolerance for pairing\r\n", MAX_OFFSET_MS);
+    } else {
+      shell_printf("  [FAIL] Exceeds %ums tolerance - will NOT pair\r\n", MAX_OFFSET_MS);
+    }
+  }
+
+  shell_print("========================\r\n");
 }
 
 /** @brief Clear recorder statistics
