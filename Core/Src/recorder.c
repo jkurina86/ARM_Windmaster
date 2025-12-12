@@ -19,7 +19,7 @@
 #define VN_Q_LEN 16 /* Must be power of two, ~320ms buffer @50Hz */
 #define RECORD_BUFFER_SIZE 4096
 #define MAX_RECORDS_PER_SERVICE 32  /* 32*128 = 4KB, Only one full buffer will be processed at a time at most. */
-#define MAX_OFFSET_MS 25  /* 25ms tolerance for nearest-neighbor pairing (handles phase offset between async sensors) */
+#define MAX_OFFSET_MS 25  /* 25ms tolerance for nearest-neighbor pairing (worst case phase offset between async sensors) */
 
 /* Queue Structures, location in RAM2 specified in linker script */
 static WM_QueueEntry_t wm_queue[WM_Q_LEN] __attribute__((section(".queue_wm")));
@@ -36,10 +36,10 @@ uint8_t record_buffer_a[RECORD_BUFFER_SIZE]__attribute__((section(".record_buffe
 uint8_t record_buffer_b[RECORD_BUFFER_SIZE]__attribute__((section(".record_buffer_b")));
 
 /* Buffer management state */
-static uint8_t* active_buffer = record_buffer_a;     // Currently being filled
-static uint8_t* flush_buffer = record_buffer_b;      // Ready to write to SD
-static uint32_t active_buf_index = 0;                // Number of records in active buffer (0-31)
-static bool flush_pending = false;                   // True if flush in progress
+static uint8_t* active_buffer = record_buffer_a;     /* Currently being filled */
+static uint8_t* flush_buffer = record_buffer_b;      /* Ready to write to SD */
+static uint32_t active_buf_index = 0;                /* Number of records in active buffer (0-31) */
+static bool flush_pending = false;                   /* True if flush in progress */
 
 static bool recording = false;
 static uint32_t record_index = 0;
@@ -51,6 +51,7 @@ char filename[128];
 /* Statistics tracking */
 static uint32_t wm_drops = 0;
 static uint32_t vn_drops = 0;
+static uint32_t vn_discards = 0;
 static uint8_t wm_queue_max = 0;
 static uint8_t vn_queue_max = 0;
 
@@ -72,6 +73,7 @@ void recorder_init(void) {
   /* Initialize statistics */
   wm_drops = 0;
   vn_drops = 0;
+  vn_discards = 0;
   wm_queue_max = 0;
   vn_queue_max = 0;
 
@@ -304,9 +306,9 @@ void recorder_service(void) {
       uint8_t vn_discard_idx = vn_q_tail;
       while (vn_discard_idx != best_vn_idx) {
         vn_discard_idx = (vn_discard_idx + 1) & (VN_Q_LEN - 1);
-        vn_drops++;  // Count discarded older VN packets
+        vn_discards++;
       }
-      vn_q_tail = (best_vn_idx + 1) & (VN_Q_LEN - 1);  // Advance past matched packet
+      vn_q_tail = (best_vn_idx + 1) & (VN_Q_LEN - 1);  /* Advance past matched packet */
 
       /* Check if active buffer is full (32 records = 4KB) */
       if (active_buf_index >= 32) {
@@ -443,6 +445,7 @@ recorder_stats_t recorder_get_stats(void)
   stats.vn_queue_max = vn_queue_max;
   stats.wm_drops = wm_drops;
   stats.vn_drops = vn_drops;
+  stats.vn_discards = vn_discards;
 
   /* Copy filename safely */
   strncpy(stats.filename, filename, sizeof(stats.filename) - 1);
@@ -524,10 +527,11 @@ void recorder_debug_queue(void)
   * @param None
   * @retval None
   */
-void recorder_clear_stats(void) 
+void recorder_clear_stats(void)
 {
   wm_drops = 0;
   vn_drops = 0;
+  vn_discards = 0;
   wm_queue_max = 0;
   vn_queue_max = 0;
 }

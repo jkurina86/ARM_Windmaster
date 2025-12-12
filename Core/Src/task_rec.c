@@ -100,13 +100,15 @@ void handle_rec_stats(const void *arg)
     shell_printf("Max WM queue depth: %u\r\n", stats.wm_queue_max);
     shell_printf("Max VN queue depth: %u\r\n", stats.vn_queue_max);
 
+    shell_print("\r\n--- Packet Statistics ---\r\n");
     if (stats.wm_drops > 0 || stats.vn_drops > 0) {
-        shell_print("\r\nWARNING: Packet drops detected!\r\n");
-        shell_printf("WindMaster drops: %lu\r\n", stats.wm_drops);
-        shell_printf("VectorNav drops:  %lu\r\n", stats.vn_drops);
+        shell_print("WARNING: Data loss detected!\r\n");
+        shell_printf("WindMaster drops: %lu (queue overflow)\r\n", stats.wm_drops);
+        shell_printf("VectorNav drops:  %lu (queue overflow)\r\n", stats.vn_drops);
     } else {
-        shell_print("\r\nNo packet drops\r\n");
+        shell_print("No packet drops (no data loss)\r\n");
     }
+    shell_printf("VectorNav discards: %lu (nearest-neighbor pairing)\r\n", stats.vn_discards);
 
     if (stats.recording) {
         shell_printf("\r\nCurrent log file: %s\r\n", stats.filename);

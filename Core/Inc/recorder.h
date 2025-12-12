@@ -79,7 +79,8 @@ typedef struct {
   uint8_t wm_queue_max;           // Max WM queue depth seen
   uint8_t vn_queue_max;           // Max VN queue depth seen
   uint32_t wm_drops;              // WindMaster queue overflow drops
-  uint32_t vn_drops;              // VectorNav queue overflow drops
+  uint32_t vn_drops;              // VectorNav queue overflow drops (data loss)
+  uint32_t vn_discards;           // VectorNav intentional discards (nearest-neighbor pairing)
   char filename[64];              // Current log filename
 } recorder_stats_t;
 

@@ -40,6 +40,7 @@ add_subdirectory(cmake/stm32cubemx)
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
+    Drivers/CMSIS/DSP/Lib/GCC
 )
 
 # Add sources to executable
@@ -59,17 +60,18 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/task_gen.c
     Core/Src/task_rtc.c
     Core/Src/task_rec.c
-    Core/Src/flux_calc.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    Drivers/CMSIS/DSP/Include
 )
 
 # Add project symbols (macros)
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined symbols
+    ARM_MATH_CM4
 )
 
 # Remove wrong libob.a library dependency when using cpp files
@@ -80,4 +82,5 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
 
     # Add user defined libraries
+    arm_cortexM4lf_math
 )
