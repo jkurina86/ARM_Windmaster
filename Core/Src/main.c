@@ -48,19 +48,10 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-typedef struct {
-    char identifier[6];
-    uint32_t packet_number;
-} LogEntry;
-
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
-#define UART_RX_BUFFER_SIZE 128
-#define DMA_BUFFER_SIZE 16384
 
 /* USER CODE END PD */
 
@@ -73,21 +64,11 @@ typedef struct {
 
 /* USER CODE BEGIN PV */
 
-/* Print buffers and flags for UART2-5 */
-char uart2_print_buffer[UART_RX_BUFFER_SIZE];
-char uart3_print_buffer[UART_RX_BUFFER_SIZE];
-volatile uint8_t uart2_print_flag = 0;
-volatile uint8_t uart3_print_flag = 0;
-
 /* RTC timer notification flag set by EXTI callback */
 static volatile uint8_t rtc_timer_flag = 0;
 
 /* 20 Hz timer notification flag */
 //volatile uint8_t tick20_flag = 0;
-
-/* DMA buffer extern */
-extern uint8_t dma_buffer_wm[DMA_BUFFER_SIZE];
-extern uint8_t dma_buffer_imu[DMA_BUFFER_SIZE];
 
 /* USER CODE END PV */
 
@@ -95,9 +76,7 @@ extern uint8_t dma_buffer_imu[DMA_BUFFER_SIZE];
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
-void rtc_init(void);
 void uart_rx_process_char(uint8_t ch);
-void init_uart_interrupts(void);
 
 /* USER CODE END PFP */
 
@@ -166,10 +145,6 @@ int main(void)
   HAL_NVIC_DisableIRQ(UART4_IRQn);
   HAL_NVIC_DisableIRQ(UART5_IRQn);
 
-  /* Enable USART2 (WindMaster) and USART3 (VectorNav) */
-  /* USART2/3 initialized with MX_USART2_UART_Init() / MX_USART3_UART_Init() */
-  /* DMA RX/TX already configured in those functions */
-
   /* Start the 20 Hz timer and interrupt */
   /*
   LL_TIM_EnableIT_UPDATE(TIM4);
@@ -181,7 +156,7 @@ int main(void)
   shell_printf("===============================================\r\n");
 
   /* Initialize RTC */
-  rtc_init();
+  RTC_Init();
 
   /* Get the current date/time from the RTC */
   RTC_DateTime_t initial_dt;
@@ -209,26 +184,16 @@ int main(void)
   /* Initialize the shell */
   shell_init();
 
-  /* Set PB0 GPIO high - ENABLE pin for the USART3 RS232 transceiver */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+  /* Initialize RS232 transceivers */
+  transceiver_init();
 
-  /* Set PB4 GPIO high and PB5 GPIO low to enable the UART5 RS232 transceiver */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-
-  /* Set PB1 GPIO high - ENABLE pin for USART2 RS232 transceiver */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
-
-  /* Set PB2_GPIO high to supply power to the SD card */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
-
-  /* Initialize UART interrupts for input detection */
+  /* Initialize UART interrupts */
   init_uart_interrupts();
 
-  /* Initialize the WindMaster Sensor */
+  /* Initialize the WM - windmaster.c */
   wm_init();
 
-  /* Initialize the IMU Sensor */
+  /* Initialize the VN300 - vn.c */
   vn_init();
 
   /* Allow time for SD card power and UART lines to stabilize and clear any flags */
@@ -243,16 +208,17 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    
     /* Kick the Dog (2 second timeout until system reset) */
     HAL_IWDG_Refresh(&hiwdg);
 
-    /* Shell processing and parsing */
-    shell_task();
-
-    /* Process recorder queues and write to SD */
+    /* Process recorder queues and write to SD, returns fast if not recording */
     recorder_service();
 
-    /* Run any pending tasks */
+    /* Shell parsing, processing, and task scheduling */
+    shell_task();
+
+    /* Execute any pending tasks */
     tasker_run();
 
   }
@@ -321,40 +287,10 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
-void rtc_init(void) {
-  /* Initialize the RTC and enable CLOCKOUT @ 1 Hz */
-  if (RTC_Init() == RTC_OK) {
-    /* Set CLKOUT frequency to 1Hz using EEPROM Control register */
-    uint8_t eeprom_ctrl;
-    if (RTC_ReadEEPROM(RTC_REG_EEPROM_CONTROL, &eeprom_ctrl) == RTC_OK) {
-        /* Clear existing FD0 and FD1 bits */
-        eeprom_ctrl &= ~(RTC_EEPROM_CTRL_FD0 | RTC_EEPROM_CTRL_FD1);
-        /* Set FD1=1, FD0=1 for 1Hz */
-        eeprom_ctrl |= RTC_EEPROM_CTRL_FD0;  // FD0=1
-        eeprom_ctrl |= RTC_EEPROM_CTRL_FD1;  // FD1=1
-        /* Enable temperature compensation for accuracy */
-        eeprom_ctrl &= ~RTC_EEPROM_CTRL_THP; // ThP=0 for 1s scanning interval
-        eeprom_ctrl |= RTC_EEPROM_CTRL_THE;  // ThE=1 to enable thermometer
-        
-        if (RTC_WriteEEPROM(RTC_REG_EEPROM_CONTROL, eeprom_ctrl) == RTC_OK) {            
-            /* Enable clock output */
-            RTC_EnableClockOutput(true);
-            HAL_Delay(100); // Wait longer for CLKOUT to stabilize with new frequency
-            shell_printf("RTC CLKOUT enabled @ 1Hz\r\n");
-        } else {
-            shell_printf("EEPROM write failed\r\n");
-        }
-    } else {
-        shell_printf("EEPROM read failed\r\n");
-    }
-  } else {
-      shell_printf("RTC init failed\r\n");
-  }
-
-  /* Enable TIM3 counter to start capturing RTC CLKOUT */
-  LL_TIM_EnableCounter(TIM3);
-}
-
+/** @brief Enter low-power snooze mode for a specified number of seconds
+  * @param seconds: Number of seconds to snooze
+  * @retval None
+  */
 void snooze (uint16_t seconds) {
   /* Check if the recorder is running */
   if (recorder_is_recording()) {
@@ -412,6 +348,10 @@ void snooze (uint16_t seconds) {
   /* System clock needs to be reconfigured (done in wakeup() function) */
 }
 
+/** @brief Wake up from low-power snooze mode
+  * @param None
+  * @retval None
+  */
 void wakeup (void) {
   /* After waking from Stop Mode 2, system clock is MSI (4 MHz default) */
   /* Need to reconfigure system clock to PLL */
@@ -435,10 +375,10 @@ void wakeup (void) {
   LL_SPI_Enable(SPI2);
 
   /* Turn on the RS232 transceivers */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); // USART3
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET); // USART2
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET); // UART5
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET); // UART5 second control
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET); /* USART3 */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET); /* USART2 */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET); /* UART5 */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET); /* UART5 second control */
   /* UART4 RS232 Transceiver is Always-On */
 
   /* Turn on UARTs */
@@ -453,48 +393,6 @@ void wakeup (void) {
 
   /* Small delay to allow peripherals to stabilize */
   HAL_Delay(50);
-}
-
-/**
-  * @brief Initialize UART interrupts for input detection
-  * @param None
-  * @retval None
-  */
-void init_uart_interrupts(void)
-{
-  volatile uint32_t dummy;
-  /* Flush UART RX Registers with a dummy read */
-  if (LL_USART_IsActiveFlag_RXNE(USART2)) dummy = LL_USART_ReceiveData8(USART2);
-  if (LL_USART_IsActiveFlag_RXNE(USART3)) dummy = LL_USART_ReceiveData8(USART3);
-  if (LL_USART_IsActiveFlag_RXNE(UART4)) dummy = LL_USART_ReceiveData8(UART4);
-  if (LL_USART_IsActiveFlag_RXNE(UART5)) dummy = LL_USART_ReceiveData8(UART5); 
-  (void)dummy;
-
-  /* Clear USART2 RX Flags */
-  LL_USART_ClearFlag_ORE(USART2);  /* Overrun Error Flag */
-  LL_USART_ClearFlag_NE(USART2);   /* Noise Error Flag */
-  LL_USART_ClearFlag_PE(USART2);   /* Parity Error Flag */
-  LL_USART_ClearFlag_FE(USART2);   /* Framing Error Flag */
-  /* Clear USART3 RX Flags */
-  LL_USART_ClearFlag_ORE(USART3);  /* Overrun Error Flag */
-  LL_USART_ClearFlag_NE(USART3);   /* Noise Error Flag */
-  LL_USART_ClearFlag_PE(USART3);   /* Parity Error Flag */
-  LL_USART_ClearFlag_FE(USART3);   /* Framing Error Flag */
-  /* Clear UART4 RX Flags */
-  LL_USART_ClearFlag_ORE(UART4);  /* Overrun Error Flag */
-  LL_USART_ClearFlag_NE(UART4);   /* Noise Error Flag */
-  LL_USART_ClearFlag_PE(UART4);   /* Parity Error Flag */
-  LL_USART_ClearFlag_FE(UART4);   /* Framing Error Flag */
-  /* Clear UART5 RX Flags */
-  LL_USART_ClearFlag_ORE(UART5);  /* Overrun Error Flag */
-  LL_USART_ClearFlag_NE(UART5);   /* Noise Error Flag */
-  LL_USART_ClearFlag_PE(UART5);   /* Parity Error Flag */
-  LL_USART_ClearFlag_FE(UART5);   /* Framing Error Flag */
-
-  /* Enable The UART RXNE interrupts */
-  LL_USART_EnableIT_RXNE(USART2);
-  LL_USART_EnableIT_RXNE(USART3);
-  /* Note: UART4 and UART5 use DMA with IDLE interrupt, not RXNE */
 }
 
 /**

@@ -24,6 +24,8 @@ extern SPI_HandleTypeDef hspi2;
 static RTC_Status_t RTC_SPITransmit(uint8_t* data, uint16_t size);
 static RTC_Status_t RTC_SPITransmitReceive(uint8_t* tx_data, uint8_t* rx_data, uint16_t size);
 
+static RTC_Status_t RTC_WaitForEEPROMReady(uint32_t timeout_ms);
+
 /* Private functions ---------------------------------------------------------*/
 
 /**
@@ -55,6 +57,29 @@ static RTC_Status_t RTC_SPITransmitReceive(uint8_t* tx_data, uint8_t* rx_data, u
     return RTC_OK;
 }
 
+static RTC_Status_t RTC_WaitForEEPROMReady(uint32_t timeout_ms)
+{
+    const uint32_t start_tick = HAL_GetTick();
+    uint8_t status;
+
+    while (1) {
+        RTC_Status_t read_status = RTC_ReadRegister(RTC_REG_CONTROL_STATUS, &status);
+        if (read_status != RTC_OK) {
+            return read_status;
+        }
+
+        if ((status & RTC_CTRL_STATUS_EEBUSY) == 0) {
+            return RTC_OK;
+        }
+
+        if ((HAL_GetTick() - start_tick) >= timeout_ms) {
+            return RTC_EEPROM_BUSY;
+        }
+
+        HAL_Delay(1);
+    }
+}
+
 /* Public functions ----------------------------------------------------------*/
 
 /**
@@ -82,7 +107,44 @@ RTC_Status_t RTC_Init(void)
     if (RTC_WriteRegister(RTC_REG_CONTROL_INT, ctrl_int) != RTC_OK) {
         return RTC_ERROR;
     }
-    
+
+    /* Set CLKOUT frequency to 1Hz using EEPROM Control register */
+    uint8_t eeprom_ctrl;
+    RTC_Status_t status = RTC_ReadEEPROM(RTC_REG_EEPROM_CONTROL, &eeprom_ctrl);
+    if (status == RTC_OK) {
+        /* Clear existing FD0 and FD1 bits */
+        eeprom_ctrl &= ~(RTC_EEPROM_CTRL_FD0 | RTC_EEPROM_CTRL_FD1);
+        /* Set FD1=1, FD0=1 for 1Hz */
+        eeprom_ctrl |= RTC_EEPROM_CTRL_FD0;
+        eeprom_ctrl |= RTC_EEPROM_CTRL_FD1;
+        /* Enable temperature compensation for accuracy */
+        eeprom_ctrl &= ~RTC_EEPROM_CTRL_THP; // ThP=0 for 1s scanning interval
+        eeprom_ctrl |= RTC_EEPROM_CTRL_THE;  // ThE=1 to enable thermometer
+
+        status = RTC_WriteEEPROM(RTC_REG_EEPROM_CONTROL, eeprom_ctrl);
+        if (status != RTC_OK) {
+            return status;
+        }
+
+        status = RTC_WaitForEEPROMReady(200);
+        if (status != RTC_OK) {
+            return status;
+        }
+
+        /* Enable clock output */
+        status = RTC_EnableClockOutput(true);
+        if (status != RTC_OK) {
+            return status;
+        }
+
+        HAL_Delay(100); /* Wait for CLKOUT to stabilize with new frequency */
+    } else {
+        return status;
+    }
+
+    /* Enable TIM3 counter to start capturing RTC CLKOUT */
+    LL_TIM_EnableCounter(TIM3);
+
     return RTC_OK;
 }
 

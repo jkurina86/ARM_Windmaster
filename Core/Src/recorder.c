@@ -157,9 +157,9 @@ void recorder_stop(void) {
 
 }
 
-/* @brief Queue a WindMaster packet for recording with timestamp
- * @param pkt: Pointer to WM_Packet_t structure with WindMaster data
- * @retval None
+/** @brief Queue a WindMaster packet for recording with timestamp
+  * @param pkt: Pointer to WM_Packet_t structure with WindMaster data
+  * @retval None
   */
 void recorder_queue_wm(const WM_Packet_t *pkt)
 {
@@ -274,9 +274,10 @@ void recorder_service(void) {
 
       /* Early exit if VN is too far in the future */
       if (diff_ms < -(int64_t)MAX_OFFSET_MS) {
-        break;  // VN queue is sorted by time, no need to search further
+        break;
       }
 
+      /* Advance to next VN packet, equivalent to (vn_idx + 1) % VN_Q_LEN */
       vn_idx = (vn_idx + 1) & (VN_Q_LEN - 1);
     }
 
@@ -299,7 +300,7 @@ void recorder_service(void) {
       active_buf_index++;
       records_processed++;
 
-      /* Dequeue matched WindMaster packet */
+      /* Dequeue matched WindMaster packet, equivalent to (wm_q_tail + 1) % WM_Q_LEN */
       wm_q_tail = (wm_q_tail + 1) & (WM_Q_LEN - 1);
 
       /* Remove matched VN packet and all older packets */
@@ -308,7 +309,9 @@ void recorder_service(void) {
         vn_discard_idx = (vn_discard_idx + 1) & (VN_Q_LEN - 1);
         vn_discards++;
       }
-      vn_q_tail = (best_vn_idx + 1) & (VN_Q_LEN - 1);  /* Advance past matched packet */
+
+      /* Advance past matched packet, equivalent to (best_vn_idx + 1) % VN_Q_LEN */
+      vn_q_tail = (best_vn_idx + 1) & (VN_Q_LEN - 1); 
 
       /* Check if active buffer is full (32 records = 4KB) */
       if (active_buf_index >= 32) {
@@ -468,9 +471,15 @@ void recorder_debug_queue(void)
   shell_printf("WM Queue: %u entries (head=%u, tail=%u)\r\n", wm_count, wm_q_head, wm_q_tail);
 
   if (wm_count > 0) {
+    /* Show first 3 entries or all if fewer than 3 */
     uint8_t show_count = (wm_count > 3) ? 3 : wm_count;
+
+    /* Loop through first few entries */
     for (uint8_t i = 0; i < show_count; i++) {
+      /* Advance index with wraparound */
       uint8_t idx = (wm_q_tail + i) & (WM_Q_LEN - 1);
+      
+      /* Print WindMaster queue entry timestamp */
       shell_printf("  WM[%u]: t=%lu.%03u s\r\n",
                    idx,
                    wm_queue[idx].timestamp_s,

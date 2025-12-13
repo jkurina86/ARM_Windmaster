@@ -494,4 +494,46 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* uartHandle)
 
 /* USER CODE BEGIN 1 */
 
+/**
+  * @brief Initialize UART interrupts for input detection
+  * @param None
+  * @retval None
+  */
+void init_uart_interrupts(void)
+{
+  volatile uint32_t dummy;
+  /* Flush UART RX Registers with a dummy read */
+  if (LL_USART_IsActiveFlag_RXNE(USART2)) dummy = LL_USART_ReceiveData8(USART2);
+  if (LL_USART_IsActiveFlag_RXNE(USART3)) dummy = LL_USART_ReceiveData8(USART3);
+  if (LL_USART_IsActiveFlag_RXNE(UART4)) dummy = LL_USART_ReceiveData8(UART4);
+  if (LL_USART_IsActiveFlag_RXNE(UART5)) dummy = LL_USART_ReceiveData8(UART5); 
+  (void)dummy;
+
+  /* Clear USART2 RX Flags */
+  LL_USART_ClearFlag_ORE(USART2);  /* Overrun Error Flag */
+  LL_USART_ClearFlag_NE(USART2);   /* Noise Error Flag */
+  LL_USART_ClearFlag_PE(USART2);   /* Parity Error Flag */
+  LL_USART_ClearFlag_FE(USART2);   /* Framing Error Flag */
+  /* Clear USART3 RX Flags */
+  LL_USART_ClearFlag_ORE(USART3);  /* Overrun Error Flag */
+  LL_USART_ClearFlag_NE(USART3);   /* Noise Error Flag */
+  LL_USART_ClearFlag_PE(USART3);   /* Parity Error Flag */
+  LL_USART_ClearFlag_FE(USART3);   /* Framing Error Flag */
+  /* Clear UART4 RX Flags */
+  LL_USART_ClearFlag_ORE(UART4);  /* Overrun Error Flag */
+  LL_USART_ClearFlag_NE(UART4);   /* Noise Error Flag */
+  LL_USART_ClearFlag_PE(UART4);   /* Parity Error Flag */
+  LL_USART_ClearFlag_FE(UART4);   /* Framing Error Flag */
+  /* Clear UART5 RX Flags */
+  LL_USART_ClearFlag_ORE(UART5);  /* Overrun Error Flag */
+  LL_USART_ClearFlag_NE(UART5);   /* Noise Error Flag */
+  LL_USART_ClearFlag_PE(UART5);   /* Parity Error Flag */
+  LL_USART_ClearFlag_FE(UART5);   /* Framing Error Flag */
+
+  /* Enable The UART RXNE interrupts */
+  LL_USART_EnableIT_RXNE(USART2);
+  LL_USART_EnableIT_RXNE(USART3);
+  /* Note: UART4 and UART5 use DMA with IDLE interrupt, not RXNE */
+}
+
 /* USER CODE END 1 */

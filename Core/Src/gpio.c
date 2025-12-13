@@ -119,4 +119,24 @@ void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 2 */
 
+/** @brief  Initialize GPIO pins enable RS232 Transceivers
+  * @param  None
+  * @retval None
+  */
+void transceiver_init(void)
+{
+  /* Set PB0 GPIO high - ENABLE pin for the USART3 RS232 transceiver */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+
+  /* Set PB4 GPIO high and PB5 GPIO low to enable the UART5 RS232 transceiver */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
+
+  /* Set PB1 GPIO high - ENABLE pin for USART2 RS232 transceiver */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+
+  /* Set PB2_GPIO high to supply power to the SD card */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
+}
+
 /* USER CODE END 2 */
