@@ -178,7 +178,7 @@ void MX_UART5_Init(void)
   /* USER CODE BEGIN UART5_Init 1 */
 
   /* USER CODE END UART5_Init 1 */
-  UART_InitStruct.BaudRate = 115200;
+  UART_InitStruct.BaudRate = 57600;
   UART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
   UART_InitStruct.StopBits = LL_USART_STOPBITS_1;
   UART_InitStruct.Parity = LL_USART_PARITY_NONE;

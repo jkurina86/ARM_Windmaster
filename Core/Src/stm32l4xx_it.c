@@ -344,6 +344,7 @@ void DMA1_Channel3_IRQHandler(void)
 
 /**
   * @brief This function handles DMA1 channel6 global interrupt.
+  * @note  DEPRECATED: WindMaster moved to UART5 (DMA2 Ch2). This handler kept for USART2.
   */
 void DMA1_Channel6_IRQHandler(void)
 {
@@ -352,7 +353,7 @@ void DMA1_Channel6_IRQHandler(void)
   /* USER CODE END DMA1_Channel6_IRQn 0 */
   /* USER CODE BEGIN DMA1_Channel6_IRQn 1 */
 
-  /* Handle DMA1 Channel 6 Transfer Complete (WindMaster RX) */
+  /* Handle DMA1 Channel 6 Transfer Complete (USART2 RX) */
   if (LL_DMA_IsActiveFlag_TC6(DMA1)) {
     LL_DMA_ClearFlag_TC6(DMA1);
   }
@@ -365,6 +366,7 @@ void DMA1_Channel6_IRQHandler(void)
 
 /**
   * @brief This function handles DMA1 channel7 global interrupt.
+  * @note  DEPRECATED: WindMaster moved to polling TX. This handler kept for USART2 TX.
   */
 void DMA1_Channel7_IRQHandler(void)
 {
@@ -373,12 +375,10 @@ void DMA1_Channel7_IRQHandler(void)
   /* USER CODE END DMA1_Channel7_IRQn 0 */
   /* USER CODE BEGIN DMA1_Channel7_IRQn 1 */
 
-  /* Handle DMA1 Channel 7 Transfer Complete (WindMaster TX) */
-  extern volatile uint8_t wm_tx_complete;
+  /* Handle DMA1 Channel 7 Transfer Complete (USART2 TX) */
   if (LL_DMA_IsActiveFlag_TC7(DMA1)) {
     LL_DMA_ClearFlag_TC7(DMA1);
-    LL_DMA_DisableIT_TC(DMA1, LL_DMA_CHANNEL_7);  /* Disable TC interrupt after transfer complete */
-    wm_tx_complete = 1;  /* Signal that WindMaster TX is complete */
+    LL_DMA_DisableIT_TC(DMA1, LL_DMA_CHANNEL_7);
   }
 
   /* USER CODE END DMA1_Channel7_IRQn 1 */
@@ -559,19 +559,18 @@ void UART5_IRQHandler(void)
 
 /**
   * @brief This function handles DMA2 channel2 global interrupt.
+  * @note  WindMaster RX on UART5
   */
 void DMA2_Channel2_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Channel2_IRQn 0 */
 
-  /* Handle DMA interrupts for UART5 RX */
+  /* Handle DMA2 Channel 2 Transfer Complete (WindMaster RX on UART5) */
   if (LL_DMA_IsActiveFlag_TC2(DMA2)) {
     LL_DMA_ClearFlag_TC2(DMA2);
-    /* Transfer complete - buffer is full */
   }
   if (LL_DMA_IsActiveFlag_HT2(DMA2)) {
     LL_DMA_ClearFlag_HT2(DMA2);
-    /* Half transfer - buffer is half full */
   }
 
   /* USER CODE END DMA2_Channel2_IRQn 0 */

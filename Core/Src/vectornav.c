@@ -76,8 +76,8 @@ void vn_init(void) {
     LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, DMA_BUFFER_SIZE);
 
     /* Enable DMA RX interrupts */
-    LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_3);
-    LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_3);
+    //LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_3);
+    //LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_3);
 
     /* Start DMA RX reception */
     LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
