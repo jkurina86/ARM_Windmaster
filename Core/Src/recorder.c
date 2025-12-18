@@ -30,6 +30,7 @@ static uint8_t wm_q_head = 0;
 static uint8_t wm_q_tail = 0;
 static uint8_t vn_q_head = 0;
 static uint8_t vn_q_tail = 0;
+static bool desync_active = false;          /* True until first successful pair after a drop */
 
 /* Double buffers for recording, location in RAM2 specified in linker script */
 uint8_t record_buffer_a[RECORD_BUFFER_SIZE]__attribute__((section(".record_buffer_a")));
@@ -59,6 +60,7 @@ static uint8_t vn_queue_max = 0;
 static void flip_buffers(void);
 static Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntry_t *wm_entry, int16_t timing_offset_ms);
 static uint8_t get_queue_count(uint8_t head, uint8_t tail, uint8_t len);
+static void clear_queues(void);
 
 
 void recorder_init(void) {
@@ -69,6 +71,7 @@ void recorder_init(void) {
   flush_buffer = record_buffer_b;
   active_buf_index = 0;
   flush_pending = false;
+  desync_active = false;
 
   /* Initialize statistics */
   wm_drops = 0;
@@ -76,6 +79,7 @@ void recorder_init(void) {
   vn_discards = 0;
   wm_queue_max = 0;
   vn_queue_max = 0;
+  desync_active = false;
 
   /* Clear buffers */
   memset(record_buffer_a, 0, RECORD_BUFFER_SIZE);
@@ -121,8 +125,13 @@ void recorder_start(void) {
   }
 
   /* Start the sensors */
+  shell_printf("[REC] Starting sensors...\r\n");
   wm_start();
+  shell_printf("[REC] WindMaster started.\r\n");
   vn_start();
+  shell_printf("[REC] VectorNav started.\r\n");
+
+  shell_printf("[REC] Recording started: %s\r\n", filename);
 }
 
 void recorder_stop(void) {
@@ -170,6 +179,8 @@ void recorder_queue_wm(const WM_Packet_t *pkt)
   if (next == wm_q_tail) {
     /* Queue full, drop packet and log it */
     wm_drops++;
+    desync_active = true;
+    clear_queues();
     return;
   }
 
@@ -202,6 +213,8 @@ void recorder_queue_vn(const VN_Packet_t *pkt)
   if (next == vn_q_tail) {
     /* Queue full, drop packet and log it */
     vn_drops++;
+    desync_active = true;
+    clear_queues();
     return;
   }
 
@@ -313,6 +326,9 @@ void recorder_service(void) {
       /* Advance past matched packet, equivalent to (best_vn_idx + 1) % VN_Q_LEN */
       vn_q_tail = (best_vn_idx + 1) & (VN_Q_LEN - 1); 
 
+      /* First successful pair after a drop clears desync flag */
+      desync_active = false;
+
       /* Check if active buffer is full (32 records = 4KB) */
       if (active_buf_index >= 32) {
         /* Buffer is full, so swap the active buffer */
@@ -340,7 +356,10 @@ void recorder_service(void) {
 
     } else {
       /* No match found - WM packet is too old or VN queue empty */
-      /* Wait for more VN packets to arrive */
+      /* If we're in desync recovery, keep flushing to wait for fresh aligned data */
+      if (desync_active) {
+        clear_queues();
+      }
       break;
     }
   }
@@ -420,6 +439,18 @@ static uint8_t get_queue_count(uint8_t head, uint8_t tail, uint8_t len)
 {
   /* Equivalent to (head - tail) % len */
   return (uint8_t)((head - tail) & (len - 1));
+}
+
+/** @brief Clear both queues and reset queue-related stats
+  * @param None
+  * @retval None
+  */
+static void clear_queues(void)
+{
+  wm_q_head = wm_q_tail = 0;
+  vn_q_head = vn_q_tail = 0;
+  wm_queue_max = 0;
+  vn_queue_max = 0;
 }
 
 /** @brief Get recorder statistics

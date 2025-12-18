@@ -2,9 +2,10 @@
 # WindMaster Dummy Sensor (Windows)
 # - Generates WM_Packet_t structures matching windmaster.h
 # - 57600 8-N-1 (WindMaster standard baud rate)
-# - 23-byte packets at 20 Hz after '*\n' then 'Q\n' command
-# - Halts on '*\n' command (configuration mode)
+# - 23-byte packets at 20 Hz after '*\r' then 'Q\r' command
+# - Halts on '*\r' command (configuration mode)
 # - Mode 10: Binary UVW Long format
+# - WindMaster only needs CR, not CRLF for commands
 
 import sys
 import time

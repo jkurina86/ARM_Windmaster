@@ -344,7 +344,6 @@ void DMA1_Channel3_IRQHandler(void)
 
 /**
   * @brief This function handles DMA1 channel6 global interrupt.
-  * @note  DEPRECATED: WindMaster moved to UART5 (DMA2 Ch2). This handler kept for USART2.
   */
 void DMA1_Channel6_IRQHandler(void)
 {
@@ -366,7 +365,6 @@ void DMA1_Channel6_IRQHandler(void)
 
 /**
   * @brief This function handles DMA1 channel7 global interrupt.
-  * @note  DEPRECATED: WindMaster moved to polling TX. This handler kept for USART2 TX.
   */
 void DMA1_Channel7_IRQHandler(void)
 {
@@ -559,7 +557,6 @@ void UART5_IRQHandler(void)
 
 /**
   * @brief This function handles DMA2 channel2 global interrupt.
-  * @note  WindMaster RX on UART5
   */
 void DMA2_Channel2_IRQHandler(void)
 {

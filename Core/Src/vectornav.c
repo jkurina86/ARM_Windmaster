@@ -7,6 +7,7 @@
   */
 
 #include "vectornav.h"
+#include "windmaster.h"
 #include "systime.h"
 #include "recorder.h"
 #include "stm32l4xx_ll_usart.h"

@@ -3,7 +3,7 @@
   * @file    windmaster.c
   * @brief   WindMaster functions
   * @note    Implements WindMaster Mode 10 - Binary UVW Long protocol
-  *          UART5 @ 57600 baud, 23-byte packets at 20Hz
+  *          USART2 @ 57600 baud, 23-byte packets at 20Hz
   ******************************************************************************
 */
 
@@ -39,43 +39,51 @@ static void flush_rx(void);
 /** @brief  Initialize the WindMaster
   * @param  None
   * @retval None
-  * @note   Sends '*\n' command to enter configuration mode, flushes echo,
-  *         then configures DMA2 Ch2 for RX (but doesn't enable it).
+  * @note   Sends '*\r' command to enter configuration mode, flushes echo,
+  *         then configures DMA1 Ch6 for RX (but doesn't enable it).
   *         Leaves the WindMaster in config mode (not sending binary data).
   *         Call wm_start() to begin measurement mode and enable DMA.
-  *         UART5 RX uses DMA2 Channel 2.
-  *         UART5 @ 57600 baud, 8-N-1.
+  *         USART2 RX uses DMA1 Channel 6.
+  *         USART2 @ 57600 baud, 8-N-1.
   */
 void wm_init(void) {
   /* Clear any pending flags and data */
-  LL_USART_ClearFlag_TC(UART5);
-  LL_USART_ClearFlag_IDLE(UART5);
-  (void)UART5->RDR;  // Dummy read to clear RX
+  LL_USART_ClearFlag_TC(USART2);
+  LL_USART_ClearFlag_IDLE(USART2);
+  (void)USART2->RDR;  // Dummy read to clear RX
 
-  /* Send '*\n' to enter configuration mode (stops any output) */
-  send_command("*\n");
+  /* Send '*\r' to enter configuration mode (stops any output) */
+  send_command("*\r");
 
   /* Wait for echo to arrive and flush it */
   HAL_Delay(50);  // Allow time for WindMaster to respond
   flush_rx();
 
   /* Now configure DMA for binary data reception */
-  /* Enable USART5 DMA request for RX */
-  LL_USART_EnableDMAReq_RX(UART5);
+  /* Ensure DMA channel is disabled before touching counters/addresses */
+  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_6);
 
-  /* Configure DMA RX addresses (DMA2 Channel 2) */
-  LL_DMA_ConfigAddresses(DMA2, LL_DMA_CHANNEL_2,
-                        LL_USART_DMA_GetRegAddr(UART5, LL_USART_DMA_REG_DATA_RECEIVE),
+  /* Enable USART2 DMA request for RX */
+  LL_USART_EnableDMAReq_RX(USART2);
+
+  /* Configure DMA RX addresses (DMA1 Channel 6) */
+  LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_6,
+                        LL_USART_DMA_GetRegAddr(USART2, LL_USART_DMA_REG_DATA_RECEIVE),
                         (uint32_t)dma_buffer_wm,
                         LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 
-  LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_2, DMA_BUFFER_SIZE);
+  LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_6, DMA_BUFFER_SIZE);
 }
 
 /** @brief  Start the WindMaster
   * @param  None
   * @retval None
-  * @note   Sends 'Q\n' to start measurement mode (binary output).
+  * @note   Sends 'Q\r' to start measurement mode (binary output).
+  *         After ~1.67s, WindMaster sends a 25-byte acknowledgment:
+  *           - Bytes 1-2: \r\n (acknowledgment)
+  *           - Bytes 3-25: First 23-byte packet (0xB4B4 header + data)
+  *         All 25 bytes are discarded before enabling DMA to ensure clean capture.
+  *         Subsequent packets arrive at 20Hz (every 50ms) and are captured by DMA.
   *         Init leaves the WindMaster in config mode (not sending data).
   *         This function transitions to measurement mode and enables DMA.
   */
@@ -85,19 +93,20 @@ void wm_start(void) {
     return;
   }
 
-  /* Send 'Q\n' to return to measurement mode (starts binary output) */
-  send_command("Q\n");
-
-  /* Wait for echo to arrive and flush it */
-  HAL_Delay(10);
+  /* Send 'Q\r' to start measurement mode (binary output) and flush the echo */
+  send_command("Q\r");
+  HAL_Delay(1);
   flush_rx();
 
-  /* Enable DMA for binary data reception */
-  LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_2);
+  /* Advance the DMA buffer position to skip the <CR><LF> it sends before the first measurement */
+  dma_old_pos_wm = 2;
 
-  /* Enable DMA RX interrupts */
-  //LL_DMA_EnableIT_TC(DMA2, LL_DMA_CHANNEL_2);
-  //LL_DMA_EnableIT_HT(DMA2, LL_DMA_CHANNEL_2);
+  /* Reset DMA transfer counter (must be done while channel is disabled) */
+  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_6);
+  LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_6, DMA_BUFFER_SIZE);
+
+  /* Enable DMA for binary data reception */
+  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_6);
 
   /* Initialize latest data */
   memset(&latest_packet, 0, sizeof(WM_Packet_t));
@@ -109,16 +118,16 @@ void wm_start(void) {
 /** @brief  Stop the WindMaster
   * @param  None
   * @retval None
-  * @note   Disables DMA, sends '*\n' to enter configuration mode (stops binary output),
+  * @note   Disables DMA, sends '*\r' to enter configuration mode (stops binary output),
   *         flushes echo, and clears running flag.
   */
 void wm_stop(void) {
   if (wm_running) {
     /* Disable DMA to prevent binary data corruption during command */
-    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_2);
+    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_6);
 
-    /* Send '*\n' to enter configuration mode (stops output) */
-    send_command("*\n");
+    /* Send '*\r' to enter configuration mode (stops output) */
+    send_command("*\r");
 
     /* Wait for echo and flush */
     HAL_Delay(50);
@@ -146,7 +155,7 @@ bool wm_is_running(void) {
 bool wm_drain_and_queue(void)
 {
     const uint16_t MASK = (uint16_t)(DMA_BUFFER_SIZE - 1);
-    const uint16_t wr   = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_2)) & MASK);
+  const uint16_t wr   = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_6)) & MASK);
 
     uint16_t rd    = dma_old_pos_wm;
     uint16_t avail = (uint16_t)((wr - rd) & MASK);
@@ -196,38 +205,40 @@ bool wm_drain_and_queue(void)
 /** @brief  Send a command to the WindMaster using polling TX
   * @param  cmd: Null-terminated command string to send
   * @retval None
-  * @note   Transmits the command string over UART5 using polling mode.
-  *         Used for short configuration commands ('*\n', 'Q\n').
+  * @note   Transmits the command string over USART2 using polling mode.
+  *         Used for short configuration commands ('*\r', 'Q\r').
+  *         Includes 2ms inter-character delay to allow WindMaster to echo and process each byte.
   */
 static void send_command(const char* cmd) {
   while (*cmd) {
     /* Wait for TX empty */
-    while (!LL_USART_IsActiveFlag_TXE(UART5));
+    while (!LL_USART_IsActiveFlag_TXE(USART2));
 
     /* Send character */
-    LL_USART_TransmitData8(UART5, *cmd);
+    LL_USART_TransmitData8(USART2, *cmd);
+
+    /* Wait for transmission complete */
+    while (!LL_USART_IsActiveFlag_TC(USART2));
+
     cmd++;
   }
-
-  /* Wait for transmission complete */
-  while (!LL_USART_IsActiveFlag_TC(UART5));
 }
 
 /** @brief  Flush RX FIFO to clear command echoes
   * @param  None
   * @retval None
-  * @note   Reads and discards all available data from UART5 RX.
+  * @note   Reads and discards all available data from USART2 RX.
   *         Used after sending configuration commands to clear echoes.
   */
 static void flush_rx(void) {
   /* Drain RX FIFO */
-  while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-    (void)LL_USART_ReceiveData8(UART5);
+  while (LL_USART_IsActiveFlag_RXNE(USART2)) {
+    (void)LL_USART_ReceiveData8(USART2);
   }
 
   /* Clear IDLE flag if set */
-  if (LL_USART_IsActiveFlag_IDLE(UART5)) {
-    LL_USART_ClearFlag_IDLE(UART5);
+  if (LL_USART_IsActiveFlag_IDLE(USART2)) {
+    LL_USART_ClearFlag_IDLE(USART2);
   }
 }
 

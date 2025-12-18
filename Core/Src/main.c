@@ -128,7 +128,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
   MX_RTC_Init();
-  MX_IWDG_Init();
+  //MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
 
   shell_printf("\r\nSystem initializing...\r\n");
@@ -136,14 +136,13 @@ int main(void)
   /* Start the free-running 1 MHz timer */
   LL_TIM_EnableCounter(TIM2);
 
-  /* UART Migration: Disable old UART4/5 and enable new USART2/3 for sensors */
-  /* Disable UART4 (old WindMaster) and UART5 (old VectorNav) */
+  /* UART Configuration: UART4 not used, UART5 = WindMaster, USART3 = VectorNav */
+  /* Disable UART4 (not used) */
   LL_USART_DisableIT_RXNE(UART4);
-  LL_USART_DisableIT_RXNE(UART5);
-
-  /* Disable the old UART interrupts completely */
   HAL_NVIC_DisableIRQ(UART4_IRQn);
-  HAL_NVIC_DisableIRQ(UART5_IRQn);
+
+  /* UART5 is used for WindMaster - do NOT disable */
+  /* USART3 is used for VectorNav - already enabled */
 
   /* Start the 20 Hz timer and interrupt */
   /*
@@ -209,8 +208,8 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     
-    /* Kick the Dog (2 second timeout until system reset) */
-    HAL_IWDG_Refresh(&hiwdg);
+    /* Kick the Dog (10 second timeout until system reset) */
+    //HAL_IWDG_Refresh(&hiwdg);
 
     /* Process recorder queues and write to SD, returns fast if not recording */
     recorder_service();
