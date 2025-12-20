@@ -20,6 +20,7 @@
 #define RECORD_BUFFER_SIZE 4096
 #define MAX_RECORDS_PER_SERVICE 32  /* 32*128 = 4KB, Only one full buffer will be processed at a time at most. */
 #define MAX_OFFSET_MS 25  /* 25ms tolerance for nearest-neighbor pairing (worst case phase offset between async sensors) */
+#define LOG_ROLLOVER_BYTES (20 * 1024 * 1024) /* 20MB per log file to limit corruption window and transfer size */
 
 /* Queue Structures, location in RAM2 specified in linker script */
 static WM_QueueEntry_t wm_queue[WM_Q_LEN] __attribute__((section(".queue_wm")));
@@ -30,7 +31,9 @@ static uint8_t wm_q_head = 0;
 static uint8_t wm_q_tail = 0;
 static uint8_t vn_q_head = 0;
 static uint8_t vn_q_tail = 0;
-static bool desync_active = false;          /* True until first successful pair after a drop */
+
+/* Desynchronization flag - gets set to true to clear the queues after a packet drop */
+static bool desync_active = false; 
 
 /* Double buffers for recording, location in RAM2 specified in linker script */
 uint8_t record_buffer_a[RECORD_BUFFER_SIZE]__attribute__((section(".record_buffer_a")));
@@ -56,11 +59,17 @@ static uint32_t vn_discards = 0;
 static uint8_t wm_queue_max = 0;
 static uint8_t vn_queue_max = 0;
 
+/* Log rollover and size tracking */
+static uint32_t log_bytes_written = 0;
+
 /* Private function prototypes -----------------------------------------------*/
 static void flip_buffers(void);
 static Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntry_t *wm_entry, int16_t timing_offset_ms);
 static uint8_t get_queue_count(uint8_t head, uint8_t tail, uint8_t len);
 static void clear_queues(void);
+static void handle_write_error(FRESULT res, const char* where);
+static bool open_log_file(void);
+static bool write_with_rollover(const uint8_t* data, uint32_t len, const char* where);
 
 
 void recorder_init(void) {
@@ -100,28 +109,12 @@ void recorder_start(void) {
   flush_buffer = record_buffer_b;
   active_buf_index = 0;
   flush_pending = false;
+  log_bytes_written = 0;
 
-  /* Generate log filename with timestamp: YYYY-MM-DD-HH-MM-SS.bin */
-  uint32_t full_epoch_sec = time_s_now();
-  RTC_DateTime_t dt = epoch_to_datetime(full_epoch_sec);
-  snprintf(filename, sizeof(filename), "%04d-%02d-%02d-%02d-%02d-%02d.bin",
-           dt.years + 2000, dt.months, dt.days,
-           dt.hours, dt.minutes, dt.seconds);
-
-  /* Open log file for writing (create it if it doesn't exist) */
-  FS_Result_t fs_res = filesystem_open_log(&log_fil, filename);
-
-  /* Check if file open was successful */
-  if (fs_res != FS_OK) {
-    /* Try fallback open */
-    FRESULT fr = f_open(&log_fil, filename, FA_WRITE | FA_CREATE_ALWAYS);
-
-    if (fr != FR_OK) {
-      /* File open failed */
-      shell_printf("[REC] ERROR: File open failed (code %d)! Aborting.\r\n", fr);
-      recording = false;
-      return;
-    }
+  /* Open initial log file with timestamped name */
+  if (!open_log_file()) {
+    recording = false;
+    return;
   }
 
   /* Start the sensors */
@@ -145,15 +138,8 @@ void recorder_stop(void) {
   /* Flush any remaining data in the active buffer */
   if (active_buf_index > 0) {
     uint32_t bytes_to_write = active_buf_index * sizeof(Recorder_Data_t);
-    uint32_t bytes_written = 0;
-    while (bytes_written < bytes_to_write) {
-      UINT bw;
-      FRESULT res = f_write(&log_fil, active_buffer + bytes_written, bytes_to_write - bytes_written, &bw);
-      if (res != FR_OK) {
-        shell_printf("[REC] ERROR: File write failed (code %d)! Aborting.\r\n", res);
-        break;
-      }
-      bytes_written += bw;
+    if (!write_with_rollover(active_buffer, bytes_to_write, "stop flush")) {
+      return;
     }
     active_buf_index = 0;
   }
@@ -302,12 +288,14 @@ void recorder_service(void) {
       /* Calculate signed timing offset for recording (64-bit to avoid wraparound) */
       uint64_t vn_time_ms = (uint64_t)vn_entry->timestamp_s * 1000ULL + vn_entry->timestamp_ms;
       int64_t timing_offset_full = (int64_t)wm_time_ms - (int64_t)vn_time_ms;
-      int16_t timing_offset_ms = (int16_t)timing_offset_full;  // Safe cast: we verified offset <= 25ms
+      
+      /* Safe to cast to uint16_t since offset <= MAX_OFFSET_MS */
+      int16_t timing_offset_ms = (int16_t)timing_offset_full;
 
       Recorder_Data_t record = build_record(vn_entry, wm_entry, timing_offset_ms);
 
       /* Copy the record into the active buffer */
-      Recorder_Data_t* dest = (Recorder_Data_t*)(active_buffer + (active_buf_index * sizeof(Recorder_Data_t)));
+      Recorder_Data_t* dest = (Recorder_Data_t*)active_buffer + active_buf_index;
       memcpy(dest, &record, sizeof(Recorder_Data_t));
 
       active_buf_index++;
@@ -334,18 +322,9 @@ void recorder_service(void) {
         /* Buffer is full, so swap the active buffer */
         flip_buffers();
 
-        /* Flush the full buffer to the SD card */
-        uint32_t bytes_to_write = RECORD_BUFFER_SIZE;
-        uint32_t bytes_written = 0;
-
-        while (bytes_written < bytes_to_write) {
-          UINT bw;
-          FRESULT res = f_write(&log_fil, flush_buffer + bytes_written, bytes_to_write - bytes_written, &bw);
-          if (res != FR_OK) {
-            shell_printf("[REC] ERROR: File write failed (code %d)! Aborting.\r\n", res);
-            break;
-          }
-          bytes_written += bw;
+        /* Flush the full buffer to the SD card (with rollover) */
+        if (!write_with_rollover(flush_buffer, RECORD_BUFFER_SIZE, "service flush")) {
+          return;
         }
 
         flush_pending = false;
@@ -438,7 +417,7 @@ Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntr
 static uint8_t get_queue_count(uint8_t head, uint8_t tail, uint8_t len)
 {
   /* Equivalent to (head - tail) % len */
-  return (uint8_t)((head - tail) & (len - 1));
+  return (head - tail) & (len - 1);
 }
 
 /** @brief Clear both queues and reset queue-related stats
@@ -451,6 +430,95 @@ static void clear_queues(void)
   vn_q_head = vn_q_tail = 0;
   wm_queue_max = 0;
   vn_queue_max = 0;
+}
+
+/** @brief Open a log file with rollover-aware name
+  * @param sequence: Rollover index to append to base filename
+  * @retval true on success, false on failure
+  */
+static bool open_log_file(void)
+{
+  /* Build timestamped filename: YYYY-MM-DD-HH-MM-SS.bin */
+  uint32_t full_epoch_sec = time_s_now();
+  RTC_DateTime_t dt = epoch_to_datetime(full_epoch_sec);
+  snprintf(filename, sizeof(filename), "%04d-%02d-%02d-%02d-%02d-%02d.bin",
+           dt.years + 2000, dt.months, dt.days,
+           dt.hours, dt.minutes, dt.seconds);
+
+  FS_Result_t fs_res = filesystem_open_log(&log_fil, filename);
+  if (fs_res == FS_OK) {
+    log_bytes_written = 0;
+    return true;
+  }
+
+  FRESULT fr = f_open(&log_fil, filename, FA_WRITE | FA_CREATE_ALWAYS);
+  if (fr == FR_OK) {
+    log_bytes_written = 0;
+    return true;
+  }
+
+  shell_printf("[REC] ERROR: File open failed (code %d)! Aborting.\r\n", fr);
+  return false;
+}
+
+/** @brief Handle SD write errors by stopping recording and sensors
+  * @param res: FRESULT error code from failed write
+  * @param where: Description of where the error occurred
+  * @retval None
+  */
+static void handle_write_error(FRESULT res, const char* where)
+{
+  shell_printf("[REC] ERROR: SD write failed (%s, code %d). Stopping recording.\r\n", where, res);
+
+  /* Prevent further writes and stop sensors */
+  recording = false;
+  flush_pending = false;
+  wm_stop();
+  vn_stop();
+
+  /* Best-effort close to avoid leaving the file open */
+  f_sync(&log_fil);
+  f_close(&log_fil);
+}
+
+/** @brief Write data to SD with rollover and periodic sync
+  * @param data: Pointer to data buffer
+  * @param len: Number of bytes to write
+  * @param where: Context string for error reporting
+  * @retval true on success, false on failure
+  */
+static bool write_with_rollover(const uint8_t* data, uint32_t len, const char* where)
+{
+  uint32_t remaining = len;
+
+  while (remaining > 0) {
+    if (log_bytes_written >= LOG_ROLLOVER_BYTES) {
+      f_sync(&log_fil);
+      f_close(&log_fil);
+      if (!open_log_file()) {
+        handle_write_error(FR_DISK_ERR, "rollover open");
+        return false;
+      }
+    }
+
+    uint32_t space = LOG_ROLLOVER_BYTES - log_bytes_written;
+    uint32_t chunk = (remaining < space) ? remaining : space;
+
+    UINT bw = 0;
+    FRESULT res = f_write(&log_fil, data, chunk, &bw);
+    if (res != FR_OK || bw != chunk) {
+      handle_write_error(res != FR_OK ? res : FR_DISK_ERR, where);
+      return false;
+    }
+
+    log_bytes_written += bw;
+    remaining -= bw;
+    data += bw;
+  }
+
+  /* Persist periodically to reduce corruption risk */
+  f_sync(&log_fil);
+  return true;
 }
 
 /** @brief Get recorder statistics

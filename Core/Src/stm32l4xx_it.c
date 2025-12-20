@@ -310,12 +310,10 @@ void DMA1_Channel2_IRQHandler(void)
   /* USER CODE END DMA1_Channel2_IRQn 0 */
   /* USER CODE BEGIN DMA1_Channel2_IRQn 1 */
 
-  /* Handle DMA1 Channel 2 Transfer Complete (VectorNav TX) */
-  extern volatile uint8_t vn_tx_complete;
+  /* VectorNav TX now uses polling; just clear any stray TC flag and disable its interrupt */
   if (LL_DMA_IsActiveFlag_TC2(DMA1)) {
     LL_DMA_ClearFlag_TC2(DMA1);
-    LL_DMA_DisableIT_TC(DMA1, LL_DMA_CHANNEL_2);  /* Disable TC interrupt after transfer complete */
-    vn_tx_complete = 1;  /* Signal that VectorNav TX is complete */
+    LL_DMA_DisableIT_TC(DMA1, LL_DMA_CHANNEL_2);
   }
 
   /* USER CODE END DMA1_Channel2_IRQn 1 */

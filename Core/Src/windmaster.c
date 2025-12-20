@@ -18,11 +18,12 @@
 #include <stdio.h>
 
 /* Private defines -----------------------------------------------------------*/
-#define DMA_BUFFER_SIZE 1024 /* 1 KB for incoming WM sensor data */
-#define PACKET_SIZE 23
-#define HEADER_SIZE 2
-#define DATA_SIZE 18
-#define CHECKSUM_SIZE 1
+#define DMA_BUFFER_SIZE     1024        /* 1 KB for incoming WM sensor data */
+#define PACKET_SIZE         23          /* 23 Bytes for M10, 13 Bytes for M8 */
+#define HEADER_SIZE         2
+#define HEADER_VALUE        0xB4        /* 0xB4 for M10, 0xB2 for M8 */
+#define DATA_SIZE           18          /* 18 Bytes for M10, 8 Bytes for M8 */
+#define CHECKSUM_SIZE       1
 
 /* Private variables ---------------------------------------------------------*/
 static bool wm_running = false;
@@ -56,7 +57,7 @@ void wm_init(void) {
   send_command("*\r");
 
   /* Wait for echo to arrive and flush it */
-  HAL_Delay(50);  // Allow time for WindMaster to respond
+  HAL_Delay(10);
   flush_rx();
 
   /* Now configure DMA for binary data reception */
@@ -79,13 +80,8 @@ void wm_init(void) {
   * @param  None
   * @retval None
   * @note   Sends 'Q\r' to start measurement mode (binary output).
-  *         After ~1.67s, WindMaster sends a 25-byte acknowledgment:
-  *           - Bytes 1-2: \r\n (acknowledgment)
-  *           - Bytes 3-25: First 23-byte packet (0xB4B4 header + data)
-  *         All 25 bytes are discarded before enabling DMA to ensure clean capture.
-  *         Subsequent packets arrive at 20Hz (every 50ms) and are captured by DMA.
-  *         Init leaves the WindMaster in config mode (not sending data).
-  *         This function transitions to measurement mode and enables DMA.
+  *         Flushes echo, advances DMA buffer position to skip initial <CR><LF>,
+  *         enables DMA channel for data reception, and sets running flag.
   */
 void wm_start(void) {
   /* Return if already running */
@@ -129,8 +125,8 @@ void wm_stop(void) {
     /* Send '*\r' to enter configuration mode (stops output) */
     send_command("*\r");
 
-    /* Wait for echo and flush */
-    HAL_Delay(50);
+    /* Wait for echo and flush the RX FIFO */
+    HAL_Delay(10);
     flush_rx();
 
     wm_running = false;
@@ -154,50 +150,55 @@ bool wm_is_running(void) {
   */
 bool wm_drain_and_queue(void)
 {
-    const uint16_t MASK = (uint16_t)(DMA_BUFFER_SIZE - 1);
-  const uint16_t wr   = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_6)) & MASK);
+  const uint16_t MASK = DMA_BUFFER_SIZE - 1;
+  const uint16_t wr = (DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_6)) & MASK;
+  uint16_t rd = dma_old_pos_wm;
+  uint16_t avail = (wr - rd) & MASK;
+  bool packets_drained = false;
+  uint16_t iterations = 0;
+  const uint16_t MAX_ITERATIONS = 16;
 
-    uint16_t rd    = dma_old_pos_wm;
-    uint16_t avail = (uint16_t)((wr - rd) & MASK);
-
-    bool got_any = false;
-    uint16_t iterations = 0;
-    const uint16_t MAX_ITERATIONS = 200; // Prevent ISR from running too long
-
-    while (avail >= PACKET_SIZE && iterations < MAX_ITERATIONS) {
-        iterations++;
-        /* Expect 0xB4 0xB4 header (wrap-safe) */
-        uint8_t h0 = dma_buffer_wm[rd];
-        uint8_t h1 = dma_buffer_wm[(uint16_t)((rd + 1) & MASK)];
-        if (h0 != 0xB4 || h1 != 0xB4) {
-            rd = (uint16_t)((rd + 1) & MASK);
-            avail--;
-            continue;
-        }
-
-        /* Copy one full 23-byte packet from ring (wrap-safe) */
-        uint8_t pkt[PACKET_SIZE];
-        uint16_t first = (uint16_t)((DMA_BUFFER_SIZE - rd) < PACKET_SIZE ? (DMA_BUFFER_SIZE - rd) : PACKET_SIZE);
-        memcpy(pkt, &dma_buffer_wm[rd], first);
-        if (first < PACKET_SIZE) {
-            memcpy(pkt + first, &dma_buffer_wm[0], (size_t)(PACKET_SIZE - first));
-        }
-
-        /* Update latest_packet (truncate to struct size if smaller) */
-        size_t copy_len = sizeof(WM_Packet_t) < PACKET_SIZE ? sizeof(WM_Packet_t) : (size_t)PACKET_SIZE;
-        memcpy(&latest_packet, pkt, copy_len);
-
-        /* Queue the packet for recording with current system timestamp */
-        recorder_queue_wm(&latest_packet);
-
-        /* Advance by exactly one packet */
-        rd    = (uint16_t)((rd + PACKET_SIZE) & MASK);
-        avail = (uint16_t)((wr - rd) & MASK);
-        got_any = true;
+  /* Loop through the DMA buffer if at least one full packet is available */
+  while (avail >= PACKET_SIZE && iterations < MAX_ITERATIONS) {
+    iterations++;
+    
+    /* Expect 2 byte header header */
+    uint8_t h0 = dma_buffer_wm[rd];
+    uint8_t h1 = dma_buffer_wm[(rd + 1) & MASK];
+    
+    /* If header bytes do not match expected values, advance by one and continue */
+    if (h0 != HEADER_VALUE || h1 != HEADER_VALUE) {
+      rd = (rd + 1) & MASK;
+      avail--;
+      continue;
     }
 
-    dma_old_pos_wm = rd;
-    return got_any;
+    /* Copy one full 23-byte packet from ring */
+    uint8_t pkt[PACKET_SIZE];
+
+    /* Copy packet from ring buffer and split if the packet wraps around the end */
+    uint16_t head_len = DMA_BUFFER_SIZE - rd;
+    if (head_len >= PACKET_SIZE) {
+      memcpy(pkt, &dma_buffer_wm[rd], PACKET_SIZE);
+    } else {
+      memcpy(pkt, &dma_buffer_wm[rd], head_len);
+      memcpy(pkt + head_len, &dma_buffer_wm[0], (size_t)(PACKET_SIZE - head_len));
+    }
+
+    /* Update latest_packet (struct matches fixed packet size) */
+    memcpy(&latest_packet, pkt, PACKET_SIZE);
+
+    /* Queue the packet for recording with current system timestamp */
+    recorder_queue_wm(&latest_packet);
+
+    /* Advance by exactly one packet */
+    rd = (rd + PACKET_SIZE) & MASK;
+    avail = (wr - rd) & MASK;
+    packets_drained = true;
+  }
+
+  dma_old_pos_wm = rd;
+  return packets_drained;
 }
 
 /* Private functions ---------------------------------------------------------*/
@@ -242,30 +243,31 @@ static void flush_rx(void) {
   }
 }
 
-/** @brief Parse a received WM packet
+/** @brief Validate a received WM packet
   * @param pkt: Pointer to the received packet data
   * @param packet: Pointer to WM_Packet_t structure to populate
   * @retval true if the packet is valid, false otherwise
   * @note   Validates the packet structure and checksum, updating the latest_packet
   *         structure if valid.
   */
-bool wm_parse_packet(const uint8_t* pkt, WM_Packet_t* packet) {
-  if (pkt[0] != 0xB4 || pkt[1] != 0xB4) {
-    return false; /* Invalid header */
+bool wm_validate_packet(const uint8_t* pkt, WM_Packet_t* packet) {
+  /* Validate header */
+  if (pkt[0] != HEADER_VALUE || pkt[1] != HEADER_VALUE) {
+    return false;
   }
 
   /* Compute checksum (XOR of bytes BETWEEN header and checksum, i.e., bytes 2-21) */
   uint8_t checksum = 0;
-  for (size_t i = 2; i < PACKET_SIZE - 1; i++) {
+  for (uint8_t i = 2; i < PACKET_SIZE - 1; i++) {
     checksum ^= pkt[i];
   }
 
   /* Validate checksum */
   if (checksum != pkt[PACKET_SIZE - 1]) {
-    return false; /* Checksum mismatch */
+    return false;
   }
 
   /* Populate the structure */
-  memcpy(packet, pkt, sizeof(WM_Packet_t) < PACKET_SIZE ? sizeof(WM_Packet_t) : (size_t)PACKET_SIZE);
+  memcpy(packet, pkt, PACKET_SIZE);
   return true;
 }

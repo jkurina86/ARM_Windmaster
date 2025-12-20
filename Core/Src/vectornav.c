@@ -30,12 +30,9 @@ static VN_Packet_t latest_packet = {0};
 uint8_t dma_buffer_imu[DMA_BUFFER_SIZE] __attribute__((section(".dma_buffer_imu")));
 uint16_t dma_old_pos_imu = 0;
 
-/* TX DMA buffer for commands - must be in DMA-accessible RAM */
-static uint8_t vn_tx_buffer[256];
-volatile uint8_t vn_tx_complete = 1;  /* Signal from DMA ISR when TX complete */
-
 /* Private function prototypes -----------------------------------------------*/
 static void send_command(const char* cmd);
+static void flush_rx(void);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -49,24 +46,18 @@ static void send_command(const char* cmd);
   */
 void vn_init(void) {
     /* Flush UART RX buffer before sending command (clear any pending data) */
-    while (LL_USART_IsActiveFlag_RXNE(USART3)) {
-        (void)LL_USART_ReceiveData8(USART3);
-    }
+    flush_rx();
 
     /* Disable async mode in case it was left on from previous power cycle */
     send_command("$VNWRG,75,0,20,00*F819\n");
 
-    /* Wait briefly for response to arrive (VN-300 responds quickly) */
+    /* Wait for the command echo and flush it */
     HAL_Delay(10);
+    
+    flush_rx();
 
-    /* Flush the ASCII echo response from VectorNav */
-    while (LL_USART_IsActiveFlag_RXNE(USART3)) {
-        (void)LL_USART_ReceiveData8(USART3);
-    }
-
-    /* Configure USART3 for DMA RX and TX */
+    /* Configure USART3 for DMA RX (TX will use polling) */
     LL_USART_EnableDMAReq_RX(USART3);
-    LL_USART_EnableDMAReq_TX(USART3);
 
     /* Configure DMA RX addresses (DMA1 Channel 3) */
     LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3,
@@ -76,44 +67,25 @@ void vn_init(void) {
 
     LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, DMA_BUFFER_SIZE);
 
-    /* Enable DMA RX interrupts */
-    //LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_3);
-    //LL_DMA_EnableIT_HT(DMA1, LL_DMA_CHANNEL_3);
-
-    /* Start DMA RX reception */
-    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
-
-    /* Configure DMA TX (DMA1 Channel 2) - will be used on-demand by send_command */
-    LL_DMA_SetMemoryIncMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MEMORY_INCREMENT);
-    LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PERIPH_NOINCREMENT);
-    LL_DMA_SetMemorySize(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MDATAALIGN_BYTE);
-    LL_DMA_SetPeriphSize(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PDATAALIGN_BYTE);
-    LL_DMA_SetDataTransferDirection(DMA1, LL_DMA_CHANNEL_2, LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-    LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_2, LL_DMA_MODE_NORMAL);
-    LL_DMA_SetChannelPriorityLevel(DMA1, LL_DMA_CHANNEL_2, LL_DMA_PRIORITY_MEDIUM);
+    /* DMA will be enabled when the VectorNav starts */
 
     /* Initialize latest packet */
     memset(&latest_packet, 0, sizeof(VN_Packet_t));
-
-    /* TX complete flag initialized to ready */
-    vn_tx_complete = 1;
 }
 
 /** @brief  Start the vectornav
   * @param  None
   * @retval None
   * @note   Enables VectorNav async mode for 50Hz binary output (rate divisor = 8).
-  *         Disables DMA during command transmission to prevent ASCII echo from polluting binary data buffer.
+  *         Starts the DMA channel for receiving binary data.
   */
 void vn_start(void) {
     if (imu_running == false) {
-        /* Disable DMA to prevent ASCII echo from entering the binary data buffer */
+        /* Ensure that the DMA channel is disabled before sending command */
         LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
 
         /* Flush UART RX buffer before sending command */
-        while (LL_USART_IsActiveFlag_RXNE(USART3)) {
-            (void)LL_USART_ReceiveData8(USART3);
-        }
+        flush_rx();
 
         /* Enable async mode (50Hz binary output, divisor = 8) */
         send_command("$VNWRG,75,1,8,01,01EA*07CF\n");
@@ -122,9 +94,7 @@ void vn_start(void) {
         HAL_Delay(10);
 
         /* Flush the ASCII echo response */
-        while (LL_USART_IsActiveFlag_RXNE(USART3)) {
-            (void)LL_USART_ReceiveData8(USART3);
-        }
+        flush_rx();
 
         /* Reset DMA buffer position tracking */
         dma_old_pos_imu = 0;
@@ -149,9 +119,7 @@ void vn_stop(void) {
     LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
 
     /* Flush UART RX buffer before sending command */
-    while (LL_USART_IsActiveFlag_RXNE(USART3)) {
-        (void)LL_USART_ReceiveData8(USART3);
-    }
+    flush_rx();
 
     /* Disable async mode */
     send_command("$VNWRG,75,0,20,00*F819\n");
@@ -160,16 +128,10 @@ void vn_stop(void) {
     HAL_Delay(10);
 
     /* Flush the ASCII echo response */
-    while (LL_USART_IsActiveFlag_RXNE(USART3)) {
-        (void)LL_USART_ReceiveData8(USART3);
-    }
+    flush_rx();
 
     /* Reset DMA buffer position tracking */
     dma_old_pos_imu = 0;
-
-    /* Re-enable DMA (in case we start again later) */
-    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, DMA_BUFFER_SIZE);
-    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
 
     imu_running = false;
   }
@@ -190,118 +152,119 @@ bool vn_is_running(void) {
   *         updating the latest_packet structure with the most recent valid data.
   */
 bool vn_drain_and_queue(void) {
-  const uint16_t WR = (uint16_t)((DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_3)) & (DMA_BUFFER_SIZE - 1));
-  const uint16_t MASK = (uint16_t)(DMA_BUFFER_SIZE - 1);
-
-  /* Compute the number of bytes between RD and WR */
+  const uint16_t MASK = DMA_BUFFER_SIZE - 1;
+  const uint16_t wr = (DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_3)) & MASK;
   uint16_t rd = dma_old_pos_imu;
-  uint16_t avail = (uint16_t)((WR - rd) & MASK);
-
-  bool rx_any = false;
+  uint16_t avail = (wr - rd) & MASK;
+  bool packets_drained = false;
   uint16_t iterations = 0;
-  const uint16_t MAX_ITERATIONS = 200;
+  const uint16_t MAX_ITERATIONS = 16;
 
+  /* Loop while full packets are available, with an iteration cap */
   while (avail >= PACKET_SIZE && iterations < MAX_ITERATIONS) {
     iterations++;
-    /* Start of Packet Check */
-    if (dma_buffer_imu[rd] != 0xFA) {
-      rd = (uint16_t)((rd + 1) & MASK);
+
+    /* Expect start-of-packet byte (0xFA) */
+    uint8_t h0 = dma_buffer_imu[rd];
+    if (h0 != 0xFA) {
+      rd = (rd + 1) & MASK;
       avail--;
       continue;
     }
 
-    /* Copy one full packet into a linear temporary buffer */
+    /* Copy one full packet from ring buffer (split if wrap) */
     uint8_t tmp[PACKET_SIZE];
-    uint16_t first = (uint16_t)(DMA_BUFFER_SIZE - rd) < PACKET_SIZE ? (uint16_t)(DMA_BUFFER_SIZE - rd) : PACKET_SIZE;
-    memcpy(tmp, &dma_buffer_imu[rd], first);
-    if (first < PACKET_SIZE) {
-      memcpy(tmp + first, &dma_buffer_imu[0], (size_t)(PACKET_SIZE - first));
+    uint16_t head_len = DMA_BUFFER_SIZE - rd;
+
+    if (head_len >= PACKET_SIZE) {
+      memcpy(tmp, &dma_buffer_imu[rd], PACKET_SIZE);
+    } else {
+      memcpy(tmp, &dma_buffer_imu[rd], head_len);
+      memcpy(tmp + head_len, &dma_buffer_imu[0], (size_t)(PACKET_SIZE - head_len));
     }
 
     /* Update the latest packet */
-    size_t copy_len = sizeof(VN_Packet_t) < PACKET_SIZE ? sizeof(VN_Packet_t) : (size_t)PACKET_SIZE;
+    size_t copy_len;
+    if (sizeof(VN_Packet_t) < PACKET_SIZE) {
+      copy_len = sizeof(VN_Packet_t);
+    } else {
+      copy_len = PACKET_SIZE;
+    }
+
     memcpy(&latest_packet, tmp, copy_len);
 
-    /* Get timestamp and queue the packet for recording */
+    /* Queue the packet for recording with current system timestamp */
     recorder_queue_vn(&latest_packet);
 
-    /* Advance the read pointer */
-    rd = (uint16_t)((rd + PACKET_SIZE) & MASK);
-    avail = (uint16_t)((WR - rd) & MASK);
-
-    rx_any = true;
+    /* Advance by exactly one packet */
+    rd = (rd + PACKET_SIZE) & MASK;
+    avail = (wr - rd) & MASK;
+    packets_drained = true;
   }
 
   dma_old_pos_imu = rd;
-  return rx_any;
+  return packets_drained;
 }
 
 /* Private functions ---------------------------------------------------------*/
 
-/** @brief  Send a command to the vectornav using DMA TX
+/** @brief  Send a command to the vectornav using polling TX (blocking)
   * @param  cmd: Null-terminated command string to send
   * @retval None
-  * @note   Transmits the command string over USART3 using DMA1 Channel 2.
-  *         Waits for previous TX to complete before starting new transfer.
-  *         Function blocks until DMA transfer initiates (non-blocking transfer itself).
+  * @note   Transmits the command string over USART3 using polling mode.
+  *         Suitable for short ASCII configuration commands.
   */
 static void send_command(const char* cmd) {
-  /* Wait for previous TX to complete, ensures synchronization */
-  while (!vn_tx_complete);
+  while (*cmd) {
+    /* Wait for TX empty */
+    while (!LL_USART_IsActiveFlag_TXE(USART3));
 
-  /* Copy command to DMA buffer */
-  uint16_t len = 0;
-  while (cmd[len] && len < (sizeof(vn_tx_buffer) - 1)) {
-    vn_tx_buffer[len] = (uint8_t)cmd[len];
-    len++;
+    /* Send character */
+    LL_USART_TransmitData8(USART3, (uint8_t)*cmd);
+
+    /* Wait for transmission complete */
+    while (!LL_USART_IsActiveFlag_TC(USART3));
+
+    cmd++;
   }
-
-  if (len == 0) return;  /* Empty command */
-
-  /* Mark TX as in-progress */
-  vn_tx_complete = 0;
-
-  /* Disable DMA before reconfiguring */
-  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_2);
-
-  /* Configure DMA addresses and length */
-  LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_2,
-                        (uint32_t)vn_tx_buffer,
-                        LL_USART_DMA_GetRegAddr(USART3, LL_USART_DMA_REG_DATA_TRANSMIT),
-                        LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
-
-  LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_2, len);
-
-  /* Clear any pending TC flag before re-enabling */
-  LL_DMA_ClearFlag_TC2(DMA1);
-
-  /* Enable DMA Transfer Complete interrupt to signal completion */
-  LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_2);
-
-  /* Enable DMA channel to start transfer */
-  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_2);
 }
 
-/** @brief  Parse a received VN packet
+/** @brief  Flush RX FIFO to clear command echoes (USART3)
+  * @param  None
+  * @retval None
+  * @note   Reads and discards all available data and clears IDLE if set.
+  */
+static void flush_rx(void) {
+  while (LL_USART_IsActiveFlag_RXNE(USART3)) {
+    (void)LL_USART_ReceiveData8(USART3);
+  }
+
+  if (LL_USART_IsActiveFlag_IDLE(USART3)) {
+    LL_USART_ClearFlag_IDLE(USART3);
+  }
+}
+
+/** @brief  Validate a received VN packet
   * @param  pkt: Pointer to the start of the packet buffer
   * @param  struct: Pointer to VN_Packet_t structure to populate
   * @retval true if the packet is valid, false otherwise
   */
-bool vn_parse_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* packet) {
+bool vn_validate_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* packet) {
+  /* Validate header and length */
   if (length < PACKET_SIZE || buffer_start[0] != 0xFA) {
-    return false; // Invalid packet
+    return false;
   }
 
   /* Compute checksum */
   uint16_t checksum = 0;
-  for (size_t i = 0; i < PACKET_SIZE - 2; i++) {
+  for (uint8_t i = 0; i < PACKET_SIZE - 2; i++) {
     checksum += buffer_start[i];
   }
 
-  /* Validate checksum (Big Endian) */
-  uint16_t received_checksum = (uint16_t)(buffer_start[PACKET_SIZE - 2] << 8 | buffer_start[PACKET_SIZE - 1]);
+  /* Validate checksum (Big Endian conversion) */
+  uint16_t received_checksum = (buffer_start[PACKET_SIZE - 2] << 8) | buffer_start[PACKET_SIZE - 1];
   if (checksum != received_checksum) {
-    return false; // Checksum mismatch
+    return false;
   }
   
   memcpy(packet, buffer_start, PACKET_SIZE);
