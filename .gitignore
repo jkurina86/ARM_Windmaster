@@ -85,6 +85,7 @@ STLinkLog.txt
 # Misc.
 .specify/
 .github/
+.kilocode*
 CLAUDE*
 log.txt
 vnsdk/

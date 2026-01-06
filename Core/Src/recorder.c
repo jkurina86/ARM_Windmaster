@@ -18,9 +18,11 @@
 #define WM_Q_LEN 16 /* Must be power of two, ~800ms buffer @20Hz */
 #define VN_Q_LEN 16 /* Must be power of two, ~320ms buffer @50Hz */
 #define RECORD_BUFFER_SIZE 4096
+#define RECORD_BUFFER_CAPACITY (RECORD_BUFFER_SIZE / sizeof(Recorder_Data_t))  /* 32 records */
 #define MAX_RECORDS_PER_SERVICE 32  /* 32*128 = 4KB, Only one full buffer will be processed at a time at most. */
 #define MAX_OFFSET_MS 25  /* 25ms tolerance for nearest-neighbor pairing (worst case phase offset between async sensors) */
 #define LOG_ROLLOVER_BYTES (20 * 1024 * 1024) /* 20MB per log file to limit corruption window and transfer size */
+#define RECORDER_MAGIC_NUMBER 0xFACEFACE
 
 /* Queue Structures, location in RAM2 specified in linker script */
 static WM_QueueEntry_t wm_queue[WM_Q_LEN] __attribute__((section(".queue_wm")));
@@ -71,7 +73,20 @@ static void handle_write_error(FRESULT res, const char* where);
 static bool open_log_file(void);
 static bool write_with_rollover(const uint8_t* data, uint32_t len, const char* where);
 
+/* Helper functions for code simplification */
+static inline uint64_t timestamp_to_ms(uint32_t s, uint16_t ms);
+static inline uint8_t queue_next_idx(uint8_t idx, uint8_t capacity);
+static inline uint32_t abs64_to_u32(int64_t val);
+static inline void update_queue_max(uint8_t count, uint8_t* max_ptr);
 
+/* Extracted functions from recorder_service() for better separation of concerns */
+static bool find_nearest_vn_match(uint64_t wm_time_ms, int8_t* out_vn_idx, uint32_t* out_offset_ms);
+static void discard_vn_entries_up_to(uint8_t target_idx);
+static bool buffer_record(VN_QueueEntry_t* vn_entry, WM_QueueEntry_t* wm_entry, int16_t timing_offset_ms);
+
+/** @brief Initialize the recorder module
+  * @retval None
+  */
 void recorder_init(void) {
   /* Initialize recording state */
   recording = false;
@@ -88,13 +103,15 @@ void recorder_init(void) {
   vn_discards = 0;
   wm_queue_max = 0;
   vn_queue_max = 0;
-  desync_active = false;
 
   /* Clear buffers */
   memset(record_buffer_a, 0, RECORD_BUFFER_SIZE);
   memset(record_buffer_b, 0, RECORD_BUFFER_SIZE);
 }
 
+/** @brief Start the recorder: initialize and begin recording
+  * @retval None
+  */
 void recorder_start(void) {
   /* Check if the filesystem is mounted */
   if (!filesystem_is_mounted()) {
@@ -158,10 +175,8 @@ void recorder_stop(void) {
   */
 void recorder_queue_wm(const WM_Packet_t *pkt)
 {
-  /* Equivalent to (wm_q_head + 1) % WM_Q_LEN */
-  uint8_t next = (wm_q_head + 1) & (WM_Q_LEN - 1);
-
   /* Check if queue is full */
+  uint8_t next = queue_next_idx(wm_q_head, WM_Q_LEN);
   if (next == wm_q_tail) {
     /* Queue full, drop packet and log it */
     wm_drops++;
@@ -180,22 +195,17 @@ void recorder_queue_wm(const WM_Packet_t *pkt)
 
   /* DEBUG: Track max queue depth */
   uint8_t count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
-  if (count > wm_queue_max) {
-    /* Update max */
-    wm_queue_max = count;
-  }
+  update_queue_max(count, &wm_queue_max);
 }
 
-/* @brief Queue a VectorNav packet for recording with timestamp
- * @param pkt: Pointer to VN_Packet_t structure with IMU data
- * @retval None
+/** @brief Queue a VectorNav packet for recording with timestamp
+  * @param pkt: Pointer to VN_Packet_t structure with IMU data
+  * @retval None
   */
 void recorder_queue_vn(const VN_Packet_t *pkt)
 {
-  /* Equivalent to (vn_q_head + 1) % VN_Q_LEN */
-  uint8_t next = (vn_q_head + 1) & (VN_Q_LEN - 1);
-
   /* Check if queue is full */
+  uint8_t next = queue_next_idx(vn_q_head, VN_Q_LEN);
   if (next == vn_q_tail) {
     /* Queue full, drop packet and log it */
     vn_drops++;
@@ -215,12 +225,12 @@ void recorder_queue_vn(const VN_Packet_t *pkt)
 
   /* DEBUG: Track max queue depth */
   uint8_t count = get_queue_count(vn_q_head, vn_q_tail, VN_Q_LEN);
-  if (count > vn_queue_max) {
-    /* Update max */
-    vn_queue_max = count;
-  }
+  update_queue_max(count, &vn_queue_max);
 }
 
+/** @brief Service the recorder: process queues and write data to SD card
+  * @retval None
+  */
 void recorder_service(void) {
   if (!recording) {
     /* Not recording, return fast */
@@ -241,95 +251,43 @@ void recorder_service(void) {
     WM_QueueEntry_t *wm_entry = &wm_queue[wm_q_tail];
 
     /* Convert WM timestamp to total milliseconds (64-bit to avoid wraparound) */
-    uint64_t wm_time_ms = (uint64_t)wm_entry->timestamp_s * 1000ULL + wm_entry->timestamp_ms;
+    uint64_t wm_time_ms = timestamp_to_ms(wm_entry->timestamp_s, wm_entry->timestamp_ms);
 
     /* Search VectorNav queue for nearest neighbor */
-    int8_t best_vn_idx = -1;
-    uint32_t min_offset = UINT32_MAX;
-
-    uint8_t vn_idx = vn_q_tail;
-    while (vn_idx != vn_q_head) {
-      VN_QueueEntry_t *vn_entry = &vn_queue[vn_idx];
-
-      /* Convert VN timestamp to total milliseconds (64-bit to avoid wraparound) */
-      uint64_t vn_time_ms = (uint64_t)vn_entry->timestamp_s * 1000ULL + vn_entry->timestamp_ms;
-
-      /* Calculate signed time difference (64-bit) */
-      int64_t diff_ms = (int64_t)wm_time_ms - (int64_t)vn_time_ms;
-
-      /* Calculate absolute offset (safe cast since we expect small offsets) */
-      uint32_t offset_ms;
-      if (diff_ms >= 0) {
-        offset_ms = (uint32_t)diff_ms;
-      } else {
-        offset_ms = (uint32_t)(-diff_ms);
-      }
-
-      /* Track closest match */
-      if (offset_ms < min_offset) {
-        min_offset = offset_ms;
-        best_vn_idx = vn_idx;
-      }
-
-      /* Early exit if VN is too far in the future */
-      if (diff_ms < -(int64_t)MAX_OFFSET_MS) {
-        break;
-      }
-
-      /* Advance to next VN packet, equivalent to (vn_idx + 1) % VN_Q_LEN */
-      vn_idx = (vn_idx + 1) & (VN_Q_LEN - 1);
-    }
+    int8_t best_vn_idx;
+    uint32_t min_offset;
+    bool match_found = find_nearest_vn_match(wm_time_ms, &best_vn_idx, &min_offset);
 
     /* Check if match found within tolerance */
-    if (best_vn_idx >= 0 && min_offset <= MAX_OFFSET_MS) {
+    if (match_found) {
       /* Build record with matched pair */
       VN_QueueEntry_t *vn_entry = &vn_queue[best_vn_idx];
 
-      /* Calculate signed timing offset for recording (64-bit to avoid wraparound) */
-      uint64_t vn_time_ms = (uint64_t)vn_entry->timestamp_s * 1000ULL + vn_entry->timestamp_ms;
+      /* Calculate signed timing offset for recording */
+      uint64_t vn_time_ms = timestamp_to_ms(vn_entry->timestamp_s, vn_entry->timestamp_ms);
       int64_t timing_offset_full = (int64_t)wm_time_ms - (int64_t)vn_time_ms;
       
-      /* Safe to cast to uint16_t since offset <= MAX_OFFSET_MS */
+      /* Safe to cast to int16_t since offset <= MAX_OFFSET_MS */
       int16_t timing_offset_ms = (int16_t)timing_offset_full;
 
-      Recorder_Data_t record = build_record(vn_entry, wm_entry, timing_offset_ms);
-
-      /* Copy the record into the active buffer */
-      Recorder_Data_t* dest = (Recorder_Data_t*)active_buffer + active_buf_index;
-      memcpy(dest, &record, sizeof(Recorder_Data_t));
-
-      active_buf_index++;
-      records_processed++;
-
-      /* Dequeue matched WindMaster packet, equivalent to (wm_q_tail + 1) % WM_Q_LEN */
-      wm_q_tail = (wm_q_tail + 1) & (WM_Q_LEN - 1);
-
-      /* Remove matched VN packet and all older packets */
-      uint8_t vn_discard_idx = vn_q_tail;
-      while (vn_discard_idx != best_vn_idx) {
-        vn_discard_idx = (vn_discard_idx + 1) & (VN_Q_LEN - 1);
-        vn_discards++;
+      /* Build and buffer the record */
+      if (!buffer_record(vn_entry, wm_entry, timing_offset_ms)) {
+        return;
       }
 
-      /* Advance past matched packet, equivalent to (best_vn_idx + 1) % VN_Q_LEN */
-      vn_q_tail = (best_vn_idx + 1) & (VN_Q_LEN - 1); 
+      records_processed++;
+
+      /* Dequeue matched WindMaster packet */
+      wm_q_tail = queue_next_idx(wm_q_tail, WM_Q_LEN);
+
+      /* Remove matched VN packet and all older packets */
+      discard_vn_entries_up_to(best_vn_idx);
 
       /* First successful pair after a drop clears desync flag */
       desync_active = false;
 
-      /* Check if active buffer is full (32 records = 4KB) */
-      if (active_buf_index >= 32) {
-        /* Buffer is full, so swap the active buffer */
-        flip_buffers();
-
-        /* Flush the full buffer to the SD card (with rollover) */
-        if (!write_with_rollover(flush_buffer, RECORD_BUFFER_SIZE, "service flush")) {
-          return;
-        }
-
-        flush_pending = false;
-
-        /* After SD write, exit to main loop */
+      /* After buffer flip, exit to main loop to allow other tasks to run */
+      if (flush_pending) {
         break;
       }
 
@@ -344,6 +302,134 @@ void recorder_service(void) {
   }
 }
   
+/* Helper functions -----------------------------------------------*/
+
+/** @brief  Convert seconds and milliseconds to total milliseconds (64-bit)
+  * @param  s: Seconds from systime_snapshot()
+  * @param  ms: Milliseconds from systime_snapshot() (0-999)
+  * @retval Total milliseconds as 64-bit unsigned integer
+  */
+static inline uint64_t timestamp_to_ms(uint32_t s, uint16_t ms)
+{
+  return (uint64_t)s * 1000ULL + ms;
+}
+
+/** @brief  Calculate next circular queue index with power-of-two wrapping
+  * @param  idx: Current index
+  * @param  capacity: Queue capacity (must be power of two)
+  * @retval Next index with wraparound
+  */
+static inline uint8_t queue_next_idx(uint8_t idx, uint8_t capacity)
+{
+  return (idx + 1) & (capacity - 1);
+}
+
+/** @brief  Calculate absolute value of int64_t and safely cast to uint32_t
+  * @param  val: Signed 64-bit value
+  * @retval Absolute value as unsigned 32-bit integer
+  * @note   Safe to cast since we expect small offsets (< MAX_OFFSET_MS)
+  */
+static inline uint32_t abs64_to_u32(int64_t val)
+{
+  return (val >= 0) ? (uint32_t)val : (uint32_t)(-val);
+}
+
+/** @brief  Update queue max depth tracking
+  * @param  count: Current queue count
+  * @param  max_ptr: Pointer to max tracking variable
+  * @retval None
+  */
+static inline void update_queue_max(uint8_t count, uint8_t* max_ptr)
+{
+  if (count > *max_ptr) {
+    *max_ptr = count;
+  }
+}
+
+/* Extracted functions from recorder_service() -----------------------------------------------*/
+
+/** @brief  Find nearest VectorNav packet to match with WindMaster timestamp
+  * @param  wm_time_ms: WindMaster timestamp in milliseconds (64-bit)
+  * @param  out_vn_idx: Output parameter for best matching VN queue index
+  * @param  out_offset_ms: Output parameter for timing offset in milliseconds
+  * @retval true if match found within tolerance, false otherwise
+  */
+static bool find_nearest_vn_match(uint64_t wm_time_ms, int8_t* out_vn_idx, uint32_t* out_offset_ms)
+{
+  int8_t best_vn_idx = -1;
+  uint32_t min_offset = UINT32_MAX;
+  uint8_t vn_idx = vn_q_tail;
+
+  while (vn_idx != vn_q_head) {
+    VN_QueueEntry_t *vn_entry = &vn_queue[vn_idx];
+    uint64_t vn_time_ms = timestamp_to_ms(vn_entry->timestamp_s, vn_entry->timestamp_ms);
+    int64_t diff_ms = (int64_t)wm_time_ms - (int64_t)vn_time_ms;
+    uint32_t offset_ms = abs64_to_u32(diff_ms);
+
+    if (offset_ms < min_offset) {
+      min_offset = offset_ms;
+      best_vn_idx = vn_idx;
+    }
+
+    /* Early exit if VN is too far in the future */
+    if (diff_ms < -(int64_t)MAX_OFFSET_MS) {
+      break;
+    }
+
+    vn_idx = queue_next_idx(vn_idx, VN_Q_LEN);
+  }
+
+  *out_vn_idx = best_vn_idx;
+  *out_offset_ms = min_offset;
+  return (best_vn_idx >= 0 && min_offset <= MAX_OFFSET_MS);
+}
+
+/** @brief  Discard VN queue entries up to (but not including) target index
+  * @param  target_idx: Target index to discard up to
+  * @retval None
+  * @note   Updates vn_discards counter and advances vn_q_tail
+  */
+static void discard_vn_entries_up_to(uint8_t target_idx)
+{
+  uint8_t vn_discard_idx = vn_q_tail;
+  while (vn_discard_idx != target_idx) {
+    vn_discard_idx = queue_next_idx(vn_discard_idx, VN_Q_LEN);
+    vn_discards++;
+  }
+  vn_q_tail = queue_next_idx(target_idx, VN_Q_LEN);
+}
+
+/** @brief  Build and buffer a record from matched VN and WM entries
+  * @param  vn_entry: Pointer to VN queue entry
+  * @param  wm_entry: Pointer to WM queue entry
+  * @param  timing_offset_ms: Signed timing offset in milliseconds
+  * @retval true on success, false if buffer write failed
+  * @note   Handles buffer flipping and SD writing when buffer is full
+  */
+static bool buffer_record(VN_QueueEntry_t* vn_entry, WM_QueueEntry_t* wm_entry, int16_t timing_offset_ms)
+{
+  Recorder_Data_t record = build_record(vn_entry, wm_entry, timing_offset_ms);
+  Recorder_Data_t* dest = (Recorder_Data_t*)active_buffer + active_buf_index;
+  memcpy(dest, &record, sizeof(Recorder_Data_t));
+  
+  active_buf_index++;
+  
+  /* Check if active buffer is full */
+  if (active_buf_index >= RECORD_BUFFER_CAPACITY) {
+    /* Buffer is full, so swap the active buffer */
+    flip_buffers();
+
+    /* Flush the full buffer to the SD card (with rollover) */
+    if (!write_with_rollover(flush_buffer, RECORD_BUFFER_SIZE, "service flush")) {
+      return false;
+    }
+
+    flush_pending = false;
+  }
+  
+  return true;
+}
+
 /* Private functions -----------------------------------------------*/
 
 /** @brief  Atomically swap active and flush buffers
@@ -371,7 +457,7 @@ Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntr
   memset(&record, 0, sizeof(Recorder_Data_t));
 
   /* Give it a magic number and log index */
-  record.magic_number = 0xFACEFACE;
+  record.magic_number = RECORDER_MAGIC_NUMBER;
   record.log_index = record_index++;
 
   /* Use the systime snapshot for timestamping */
@@ -445,15 +531,15 @@ static bool open_log_file(void)
            dt.years + 2000, dt.months, dt.days,
            dt.hours, dt.minutes, dt.seconds);
 
+  log_bytes_written = 0;
+
   FS_Result_t fs_res = filesystem_open_log(&log_fil, filename);
   if (fs_res == FS_OK) {
-    log_bytes_written = 0;
     return true;
   }
 
   FRESULT fr = f_open(&log_fil, filename, FA_WRITE | FA_CREATE_ALWAYS);
   if (fr == FR_OK) {
-    log_bytes_written = 0;
     return true;
   }
 
@@ -534,7 +620,7 @@ recorder_stats_t recorder_get_stats(void)
   stats.recording = recording;
   stats.records_written = record_index;
   stats.active_buffer_records = active_buf_index;
-  stats.active_buffer_capacity = 32;
+  stats.active_buffer_capacity = RECORD_BUFFER_CAPACITY;
 
   /* Populate queue state */
   stats.wm_queue_count = get_queue_count(wm_q_head, wm_q_tail, WM_Q_LEN);
@@ -608,8 +694,8 @@ void recorder_debug_queue(void)
   /* Calculate offset between first entries if both exist */
   if (wm_count > 0 && vn_count > 0) {
     /* Use 64-bit timestamps to avoid wraparound */
-    uint64_t wm_time_ms = (uint64_t)wm_queue[wm_q_tail].timestamp_s * 1000ULL + wm_queue[wm_q_tail].timestamp_ms;
-    uint64_t vn_time_ms = (uint64_t)vn_queue[vn_q_tail].timestamp_s * 1000ULL + vn_queue[vn_q_tail].timestamp_ms;
+    uint64_t wm_time_ms = timestamp_to_ms(wm_queue[wm_q_tail].timestamp_s, wm_queue[wm_q_tail].timestamp_ms);
+    uint64_t vn_time_ms = timestamp_to_ms(vn_queue[vn_q_tail].timestamp_s, vn_queue[vn_q_tail].timestamp_ms);
     int64_t diff_ms = (int64_t)wm_time_ms - (int64_t)vn_time_ms;
 
     shell_printf("\r\nFirst entry offset: WM - VN = %lld ms\r\n", diff_ms);
@@ -620,7 +706,7 @@ void recorder_debug_queue(void)
       shell_printf("  (WM is %lld ms AFTER VN)\r\n", diff_ms);
     }
 
-    uint32_t abs_diff = (diff_ms >= 0) ? (uint32_t)diff_ms : (uint32_t)(-diff_ms);
+    uint32_t abs_diff = abs64_to_u32(diff_ms);
     if (abs_diff <= MAX_OFFSET_MS) {
       shell_printf("  [OK] Within %ums tolerance for pairing\r\n", MAX_OFFSET_MS);
     } else {
