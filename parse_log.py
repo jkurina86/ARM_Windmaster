@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
 """
-Binary Log Parser for ARM_Windmaster Data Recorder
+Log Parser for ARM_Windmaster Data Recorder
 ===================================================
 
-Parses binary log files created by the STM32L476 data recorder.
+Parses binary log files created by the data recorder.
 Each record is 128 bytes containing paired WindMaster and VectorNav data.
 
 Usage:
     python parse_log.py log_12345678.bin
     python parse_log.py log_12345678.bin --csv output.csv
-    python parse_log.py log_12345678.bin --stats
+    python parse_log.py log_12345678.bin --txt output.txt
+    python parse_log.py log_12345678.bin --csv --txt
+    python parse_log.py log_12345678.bin --csv --output-dir ./output
+    
+    # Batch process all .bin files in a directory (requires --csv/--txt)
+    python parse_log.py ./logs/ --txt
+    python parse_log.py ./logs/ --csv --txt
+    python parse_log.py ./logs/ --csv --txt --output-dir ./output
 """
 
 import struct
 import sys
 import argparse
 from pathlib import Path
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Optional
 import csv
 from datetime import datetime, timezone, timedelta
 
@@ -46,16 +53,17 @@ class RecorderData(NamedTuple):
     U_axis_speed: int       # int16_t
     V_axis_speed: int       # int16_t
     W_axis_speed: int       # int16_t
-    SoS: int                # int16_t (Speed of Sound)
+    SoS: int                # uint16_t (Speed of Sound, 0.01 m/s)
     Temp: int               # int16_t (Temperature)
     timing_offset_ms: int   # int16_t (WM timestamp - VN timestamp, signed ±10ms max)
-    # footer_padding[18] - not parsed (reduced from 20 to maintain 128 bytes)
+    # footer_padding[18] - not parsed
 
 
 # Struct format string (Little Endian):
-# I = uint32_t, Q = uint64_t, f = float, d = double, h = int16_t, B = uint8_t
-# Format: magic(I) index(I) epoch(I) ms(H) pad(2x) timegps(Q) YPR(3f) Gyro(3f) Lat/Lon/Alt(3d) Vel(3f) Acc(3f) WindMaster(6h)
-RECORD_FORMAT = '<IIIHxxQffffffdddffffffhhhhhh'
+# I = uint32_t, Q = uint64_t, f = float, d = double, h = int16_t, H = uint16_t
+# Format: magic(I) index(I) epoch(I) ms(H) pad(2x) timegps(Q) YPR(3f) Gyro(3f) Lat/Lon/Alt(3d) Vel(3f) Acc(3f)
+#         WindMaster(U,V,W = 3h, SoS = H, Temp = h, timing_offset = h)
+RECORD_FORMAT = '<IIIHxxQffffffdddffffffhhhHhh'
 RECORD_SIZE = 128
 PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # 108 bytes parsed (20 bytes padding at end)
 
@@ -109,21 +117,18 @@ def validate_record(record: RecorderData, index: int) -> List[str]:
     warnings = []
     
     if record.magic_number != MAGIC_NUMBER:
-        warnings.append(f"Record {index}: Invalid magic number 0x{record.magic_number:08X}")
-    
-    if record.log_index != index:
-        warnings.append(f"Record {index}: Index mismatch (expected {index}, got {record.log_index})")
+        warnings.append(f"Record {record.log_index}: Invalid magic number 0x{record.magic_number:08X}")
 
     # Check for reasonable timestamp (not zero and not absurdly large)
     if record.ms >= 1000:
-        warnings.append(f"Record {index}: ms out of range ({record.ms})")
+        warnings.append(f"Record {record.log_index}: ms out of range ({record.ms})")
     if record.epoch_seconds == 0 and record.ms == 0:
-        warnings.append(f"Record {index}: Zero timestamp")
+        warnings.append(f"Record {record.log_index}: Zero timestamp")
     
     return warnings
 
 
-def parse_log_file(filepath: Path, verbose: bool = False) -> List[RecorderData]:
+def parse_log_file(filepath: Path) -> List[RecorderData]:
     """Parse entire binary log file"""
     records = []
     warnings = []
@@ -155,9 +160,6 @@ def parse_log_file(filepath: Path, verbose: bool = False) -> List[RecorderData]:
                 rec_warnings = validate_record(record, index)
                 warnings.extend(rec_warnings)
                 
-                if verbose and index % 100 == 0:
-                    print(f"Parsed record {index}: timestamp={record.timegps} µs")
-                
                 index += 1
                 
             except Exception as e:
@@ -174,87 +176,6 @@ def parse_log_file(filepath: Path, verbose: bool = False) -> List[RecorderData]:
             print(f"  ... and {len(warnings) - 10} more")
     
     return records
-
-
-def print_statistics(records: List[RecorderData]):
-    """Print statistical summary"""
-    if not records:
-        print("No records to analyze")
-        return
-    
-    print("\n" + "=" * 60)
-    print("STATISTICS")
-    print("=" * 60)
-    
-    print(f"Total records: {len(records)}")
-
-    # Time span - using system timestamps reconstructed from epoch seconds
-    first_record = records[0]
-    last_record = records[-1]
-
-    # Reconstruct absolute milliseconds from epoch seconds + ms
-    first_time_ms = (first_record.epoch_seconds * 1000) + first_record.ms
-    last_time_ms = (last_record.epoch_seconds * 1000) + last_record.ms
-
-    duration_ms = last_time_ms - first_time_ms
-    duration_s = duration_ms / 1000.0
-
-    print(f"First timestamp: {first_record.epoch_seconds}s + {first_record.ms} ms")
-    print(f"Last timestamp:  {last_record.epoch_seconds}s + {last_record.ms} ms")
-    print(f"Absolute time range (ms): {first_time_ms}-{last_time_ms}")
-    print(f"Duration: {duration_s:.2f} seconds ({duration_s/60:.2f} minutes)")
-
-    # Sample rate
-    if len(records) > 1 and duration_s > 0:
-        avg_rate = len(records) / duration_s
-        print(f"Average rate: {avg_rate:.2f} Hz")
-    
-    # Index continuity
-    missing_indices = []
-    for i in range(1, len(records)):
-        expected = records[i-1].log_index + 1
-        if records[i].log_index != expected:
-            missing_indices.append((expected, records[i].log_index))
-    
-    if missing_indices:
-        print(f"\n[WARN] {len(missing_indices)} index discontinuities detected")
-    else:
-        print("\n[OK] All indices are continuous (no dropped packets)")
-    
-    # Data ranges
-    print("\nData Ranges:")
-    print(f"  Yaw:   [{min(r.yaw for r in records):.2f}, {max(r.yaw for r in records):.2f}] deg")
-    print(f"  Pitch: [{min(r.pitch for r in records):.2f}, {max(r.pitch for r in records):.2f}] deg")
-    print(f"  Roll:  [{min(r.roll for r in records):.2f}, {max(r.roll for r in records):.2f}] deg")
-    
-    u_speeds = [r.U_axis_speed for r in records]
-    v_speeds = [r.V_axis_speed for r in records]
-    w_speeds = [r.W_axis_speed for r in records]
-    
-    print(f"  Wind U: [{min(u_speeds)}, {max(u_speeds)}]")
-    print(f"  Wind V: [{min(v_speeds)}, {max(v_speeds)}]")
-    print(f"  Wind W: [{min(w_speeds)}, {max(w_speeds)}]")
-
-    # Timing offset statistics (nearest-neighbor pairing quality)
-    timing_offsets = [r.timing_offset_ms for r in records]
-    mean_offset = sum(timing_offsets) / len(timing_offsets)
-    abs_offsets = [abs(offset) for offset in timing_offsets]
-    mean_abs_offset = sum(abs_offsets) / len(abs_offsets)
-    max_abs_offset = max(abs_offsets)
-
-    print("\nTiming Quality (Nearest-Neighbor Pairing):")
-    print(f"  Offset (WM-VN): [{min(timing_offsets):+d}, {max(timing_offsets):+d}] ms")
-    print(f"  Mean offset:    {mean_offset:+.2f} ms")
-    print(f"  Mean |offset|:  {mean_abs_offset:.2f} ms")
-    print(f"  Max |offset|:   {max_abs_offset:d} ms")
-
-    # Check if any offsets exceed tolerance (25ms for async sensors)
-    out_of_tolerance = [offset for offset in abs_offsets if offset > 25]
-    if out_of_tolerance:
-        print(f"  [WARN] {len(out_of_tolerance)} samples exceed ±25ms tolerance")
-    else:
-        print(f"  [OK] All samples within ±25ms tolerance")
-
 
 def export_csv(records: List[RecorderData], output_path: Path):
     """Export records to CSV file"""
@@ -282,15 +203,12 @@ def export_txt(records: List[RecorderData], output_path: Path):
         return
 
     with open(output_path, 'w') as f:
-        f.write("=" * 80 + "\n")
-        f.write("ARM_Windmaster Data Log - Human Readable Format\n")
-        f.write("=" * 80 + "\n")
+        f.write("ARM_Windmaster Data Log\n")
         f.write(f"Total Records: {len(records)}\n")
         f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("=" * 80 + "\n\n")
 
         for i, record in enumerate(records):
-            f.write(f"Record #{i} (Index: {record.log_index})\n")
+            f.write(f"Record # {record.log_index}\n")
             f.write("-" * 80 + "\n")
 
             # Timestamp - milliseconds since 2000-01-01 reconstructed via epoch seconds
@@ -305,41 +223,30 @@ def export_txt(records: List[RecorderData], output_path: Path):
 
             timestamp_str = dt.strftime('%d-%m-%Y %H:%M:%S') + f".{milliseconds:03d}"
 
-            f.write(f"  Timestamp: {timestamp_str}\n")
-            f.write(f"            (epoch_seconds={record.epoch_seconds}, ms={record.ms}, absolute_ms={absolute_ms})\n\n")
+            f.write(f"Timestamp: {timestamp_str}\n")
 
             # VectorNav (IMU/GPS) Data
-            f.write("  VectorNav Data:\n")
-            f.write(f"    GPS Time (raw): {record.timegps} ns since 1980-01-01\n")
+            f.write("VectorNav Data:\n")
+            f.write(f"GPS Time (RAW): {record.timegps} ns since 1980-01-01\n")
             f.write(
-                "    GPS Time (UTC): "
+                "GPS Time (UTC): "
                 f"{gps_components['year']:04d}-{gps_components['month']:02d}-{gps_components['day']:02d} "
                 f"{gps_components['hour']:02d}:{gps_components['minute']:02d}:{gps_components['second']:02d}."
                 f"{gps_components['millisecond']:03d}{gps_components['microsecond']:03d}{gps_components['nanosecond']:03d}\n"
             )
-            f.write(
-                "                    "
-                f"(year={gps_components['year']}, month={gps_components['month']}, day={gps_components['day']}, "
-                f"hour={gps_components['hour']}, minute={gps_components['minute']}, second={gps_components['second']}, "
-                f"millisecond={gps_components['millisecond']}, microsecond={gps_components['microsecond']}, "
-                f"nanosecond={gps_components['nanosecond']})\n"
-            )
-            f.write(f"    Attitude (YPR):  {record.yaw:7.2f} {record.pitch:7.2f} {record.roll:7.2f} deg\n")
-            f.write(f"    Velocity (NED):  {record.vel_n:8.3f} {record.vel_e:8.3f} {record.vel_d:8.3f} m/s\n")
-            f.write(f"    Accel (XYZ):     {record.acc_x:8.3f} {record.acc_y:8.3f} {record.acc_z:8.3f} m/s^2\n")
-            f.write(f"    Gyro (XYZ):      {record.gyro_x:8.3f} {record.gyro_y:8.3f} {record.gyro_z:8.3f} rad/s\n")
-            f.write(f"    Position (LLA):  {record.latitude:11.6f} {record.longitude:11.6f} {record.altitude:8.2f}m\n\n")
+            f.write(f"Attitude (YPR):  {record.yaw:7.2f} {record.pitch:7.2f} {record.roll:7.2f} deg\n")
+            f.write(f"Velocity (NED):  {record.vel_n:8.3f} {record.vel_e:8.3f} {record.vel_d:8.3f} m/s\n")
+            f.write(f"Accel (XYZ):     {record.acc_x:8.3f} {record.acc_y:8.3f} {record.acc_z:8.3f} m/s^2\n")
+            f.write(f"Gyro (XYZ):      {record.gyro_x:8.3f} {record.gyro_y:8.3f} {record.gyro_z:8.3f} rad/s\n")
+            f.write(f"Position (LLA):  {record.latitude:11.6f} {record.longitude:11.6f} {record.altitude:8.2f} m\n\n")
 
             # WindMaster Data
-            f.write("  WindMaster Data:\n")
-            f.write(f"    Wind Speed (UVW): {record.U_axis_speed:6d} {record.V_axis_speed:6d} {record.W_axis_speed:6d} (raw)\n")
-            f.write(f"    Speed of Sound:   {record.SoS:6d} (raw)\n")
-            f.write(f"    Temperature:      {record.Temp:6d} (raw)\n\n")
+            f.write("WindMaster Data:\n")
+            f.write(f"Wind Speed (UVW): {record.U_axis_speed:6d} {record.V_axis_speed:6d} {record.W_axis_speed:6d} m/s\n")
+            f.write(f"Speed of Sound:   {record.SoS/100:.2f} m/s\n")
 
             # Timing Quality
-            f.write("  Timing Quality:\n")
-            f.write(f"    Offset (WM - VN): {record.timing_offset_ms:+4d} ms (nearest-neighbor pairing)\n")
-
+            f.write(f"Timing Offset: {record.timing_offset_ms:+4d} ms\n")
             f.write("\n")
 
         f.write("=" * 80 + "\n")
@@ -349,74 +256,204 @@ def export_txt(records: List[RecorderData], output_path: Path):
     print(f"\n[OK] Exported {len(records)} records to {output_path}")
 
 
+def scan_bin_files(directory: Path) -> List[Path]:
+    """Scan directory for all .bin files"""
+    if not directory.is_dir():
+        raise ValueError(f"Not a directory: {directory}")
+    
+    bin_files = sorted(directory.glob('*.bin'))
+    return bin_files
+
+
+def get_output_path(input_path: Path, output_dir: Optional[Path] = None, extension: str = '.txt') -> Path:
+    """Generate output path based on input path and optional output directory"""
+    if output_dir:
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return output_dir / (input_path.stem + extension)
+    else:
+        return input_path.parent / (input_path.stem + extension)
+
+
+def process_single_file(
+    input_path: Path,
+    csv_output: Optional[Path] = None,
+    txt_output: Optional[Path] = None,
+    auto_txt: bool = False,
+    auto_csv: bool = False,
+    output_dir: Optional[Path] = None
+) -> tuple:
+    """Process a single log file and return (success, records, errors)"""
+    try:
+        # Parse the file
+        records = parse_log_file(input_path)
+        
+        if not records:
+            return (False, [], ["No valid records found"])
+        
+        # CSV export
+        if csv_output:
+            export_csv(records, csv_output)
+        elif auto_csv:
+            csv_path = get_output_path(input_path, output_dir, '.csv')
+            export_csv(records, csv_path)
+        
+        # Text export
+        if txt_output:
+            export_txt(records, txt_output)
+        elif auto_txt:
+            txt_path = get_output_path(input_path, output_dir, '.txt')
+            export_txt(records, txt_path)
+        
+        return (True, records, [])
+        
+    except Exception as e:
+        return (False, [], [str(e)])
+
+
+def process_batch_files(
+    bin_files: List[Path],
+    auto_txt: bool = False,
+    auto_csv: bool = False,
+    output_dir: Optional[Path] = None
+) -> dict:
+    """Process multiple log files in batch mode"""
+    results = {
+        'total': len(bin_files),
+        'success': 0,
+        'failed': 0,
+        'errors': [],
+        'total_records': 0
+    }
+    
+    print(f"\n{'=' * 60}")
+    print(f"BATCH PROCESSING: {len(bin_files)} files")
+    print(f"{'=' * 60}\n")
+    
+    for idx, bin_file in enumerate(bin_files, 1):
+        print(f"\n[{idx}/{len(bin_files)}] Processing: {bin_file.name}")
+        print("-" * 60)
+        
+        success, records, errors = process_single_file(
+            bin_file,
+            csv_output=None,
+            txt_output=None,
+            auto_txt=auto_txt,
+            auto_csv=auto_csv,
+            output_dir=output_dir
+        )
+        
+        if success:
+            results['success'] += 1
+            results['total_records'] += len(records)
+            print(f"[OK] Processed {len(records)} records")
+        else:
+            results['failed'] += 1
+            print(f"[FAIL] Failed to process {bin_file.name}")
+            for error in errors:
+                print(f"  Error: {error}")
+                results['errors'].append(f"{bin_file.name}: {error}")
+    
+    # Print summary
+    print(f"\n{'=' * 60}")
+    print("BATCH PROCESSING SUMMARY")
+    print(f"{'=' * 60}")
+    print(f"Total files:     {results['total']}")
+    print(f"Successfully:    {results['success']}")
+    print(f"Failed:          {results['failed']}")
+    print(f"Total records:   {results['total_records']:,}")
+    
+    if results['errors']:
+        print(f"\nErrors encountered:")
+        for error in results['errors'][:10]:
+            print(f"  - {error}")
+        if len(results['errors']) > 10:
+            print(f"  ... and {len(results['errors']) - 10} more")
+    
+    print(f"{'=' * 60}")
+    
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Parse binary log files from ARM_Windmaster recorder',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
-    parser.add_argument('logfile', type=Path, help='Binary log file to parse')
-    parser.add_argument('--csv', type=Path, metavar='OUTPUT', help='Export to CSV file')
-    parser.add_argument('--txt', type=Path, metavar='OUTPUT', help='Export to human-readable text file')
-    parser.add_argument('--stats', action='store_true', help='Print statistics')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
-    parser.add_argument('--head', type=int, metavar='N', help='Show first N records')
+    parser.add_argument('input_path', type=Path, help='Binary log file or directory containing .bin files')
+    parser.add_argument('--csv', type=Path, metavar='OUTPUT', nargs='?', const=True, help='Export to CSV file (auto-generate if no path specified)')
+    parser.add_argument('--txt', type=Path, metavar='OUTPUT', nargs='?', const=True, help='Export to text file (auto-generate if no path specified)')
+    parser.add_argument('--output-dir', type=Path, metavar='DIR', help='Directory for auto-generated output files')
     
     args = parser.parse_args()
-    
-    if not args.logfile.exists():
-        print(f"Error: File not found: {args.logfile}")
+
+    if not args.csv and not args.txt:
+        print("[ERROR] Nothing to do: specify --csv and/or --txt")
         sys.exit(1)
     
-    # Parse the file
-    records = parse_log_file(args.logfile, verbose=args.verbose)
-    
-    if not records:
-        print("No valid records found")
+    # Check if input exists
+    if not args.input_path.exists():
+        print(f"Error: Path not found: {args.input_path}")
         sys.exit(1)
     
-    # Show first N records
-    if args.head:
-        print(f"\nFirst {args.head} records:")
-        print("-" * 60)
-        for i, record in enumerate(records[:args.head]):
-            absolute_ms = (record.epoch_seconds * 1000) + record.ms
-            _, gps_components = decode_timegps_ns(record.timegps)
-            print(f"Record {i}:")
-            print(f"  Timestamp: {record.epoch_seconds}s + {record.ms} ms (absolute {absolute_ms} ms)")
-            print(f"  GPS Time (raw): {record.timegps} ns since 1980-01-01")
-            print(
-                "  GPS Time (UTC): "
-                f"{gps_components['year']:04d}-{gps_components['month']:02d}-{gps_components['day']:02d} "
-                f"{gps_components['hour']:02d}:{gps_components['minute']:02d}:{gps_components['second']:02d}."
-                f"{gps_components['millisecond']:03d}{gps_components['microsecond']:03d}{gps_components['nanosecond']:03d}"
-            )
-            print(
-                "                 "
-                f"(year={gps_components['year']}, month={gps_components['month']}, day={gps_components['day']}, "
-                f"hour={gps_components['hour']}, minute={gps_components['minute']}, second={gps_components['second']}, "
-                f"millisecond={gps_components['millisecond']}, microsecond={gps_components['microsecond']}, "
-                f"nanosecond={gps_components['nanosecond']})"
-            )
-            print(f"  YPR: ({record.yaw:.2f}, {record.pitch:.2f}, {record.roll:.2f}) deg")
-            print(f"  Wind UVW: ({record.U_axis_speed}, {record.V_axis_speed}, {record.W_axis_speed})")
-            print(f"  Position: ({record.latitude:.6f}, {record.longitude:.6f}, {record.altitude:.2f}m)")
-            print(f"  Timing offset (WM-VN): {record.timing_offset_ms:+d} ms")
-            print()
+    # Determine if input is a file or directory
+    is_directory = args.input_path.is_dir()
     
-    # Statistics
-    if args.stats:
-        print_statistics(records)
-    
-    # CSV export
-    if args.csv:
-        export_csv(records, args.csv)
-
-    # Text export
-    if args.txt:
-        export_txt(records, args.txt)
-
-    print("\n[OK] Done")
+    # Validate options for directory mode
+    if is_directory:
+        # In directory mode, --csv/--txt without path means auto-generate for all files
+        # If a path is provided, it's invalid in directory mode
+        if args.csv and isinstance(args.csv, Path):
+            print("[ERROR] --csv with a specific output path is not supported in directory mode")
+            print("        Use --csv without a path to auto-generate CSV files, optionally with --output-dir")
+            sys.exit(1)
+        
+        if args.txt and isinstance(args.txt, Path):
+            print("[ERROR] --txt with a specific output path is not supported in directory mode")
+            print("        Use --txt without a path to auto-generate TXT files, optionally with --output-dir")
+            sys.exit(1)
+        
+        # Scan for .bin files
+        bin_files = scan_bin_files(args.input_path)
+        
+        if not bin_files:
+            print(f"[INFO] No .bin files found in {args.input_path}")
+            sys.exit(0)
+        
+        print(f"Found {len(bin_files)} .bin file(s) in {args.input_path}")
+        
+        # Process batch - only generate outputs explicitly requested via flags
+        results = process_batch_files(
+            bin_files,
+            auto_txt=bool(args.txt),
+            auto_csv=bool(args.csv),
+            output_dir=args.output_dir
+        )
+        
+        # Exit with error code if any files failed
+        if results['failed'] > 0:
+            sys.exit(1)
+        
+    else:
+        # Single file mode
+        # Process single file
+        success, records, errors = process_single_file(
+            args.input_path,
+            csv_output=args.csv if isinstance(args.csv, Path) else None,
+            txt_output=args.txt if isinstance(args.txt, Path) else None,
+            auto_txt=args.txt is True,
+            auto_csv=args.csv is True,
+            output_dir=args.output_dir
+        )
+        
+        if not success:
+            print(f"[ERROR] Failed to process {args.input_path.name}")
+            for error in errors:
+                print(f"  {error}")
+            sys.exit(1)
+        
+        print("\n[OK] Done")
 
 
 if __name__ == '__main__':
