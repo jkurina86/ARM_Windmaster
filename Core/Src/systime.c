@@ -322,3 +322,19 @@ void systime_snapshot(uint32_t *epoch_seconds, uint16_t *ms) {
     *epoch_seconds = epoch_local;
     *ms = (uint16_t)elapsed_ms;
 }
+
+/** @brief Convert GPS seconds since 1980-01-06 to RTC date/time
+  *  @param gps_seconds GPS time in seconds since 1980-01-06 00:00:00
+  *  @retval RTC_DateTime_t structure with converted date/time
+  *  @note Handles leap years and valid ranges
+  */
+RTC_DateTime_t gps_to_datetime(uint32_t gps_seconds) {
+    /* GPS epoch starts at 1980-01-06 */
+    const uint32_t GPS_EPOCH_TO_2000_EPOCH = 630720000; /* Seconds from 1980-01-06 to 2000-01-01 */
+
+    /* Convert GPS seconds to RTC epoch seconds */
+    uint32_t rtc_epoch = gps_seconds - GPS_EPOCH_TO_2000_EPOCH;
+
+    /* Use existing function to convert to RTC_DateTime_t */
+    return epoch_to_datetime(rtc_epoch);
+}

@@ -198,6 +198,26 @@ int main(void)
   /* Allow time for SD card power and UART lines to stabilize and clear any flags */
   HAL_Delay(100);
 
+  shell_printf("System initialization complete.\r\n");
+  shell_printf("Getting GPS fix...\r\n");
+  while (!vn_gps_fix()) {
+      HAL_Delay(500);
+      shell_printf(".");
+  }
+  shell_printf("\r\nGPS fix acquired!\r\n");
+
+  shell_printf("Setting RTC and System Time...\r\n");
+  /* Get current UTC date/time from VectorNav */
+  RTC_DateTime_t utc_dt = vn_get_utc_datetime();
+  /* Set RTC date/time */
+  RTC_SetDateTime(&utc_dt);
+  /* Set system time */
+  systime_init(&utc_dt);
+
+  shell_printf("RTC and System Time set to: %02d-%02d-20%02d %02d:%02d:%02d\r\n",
+              utc_dt.months, utc_dt.days, utc_dt.years,
+              utc_dt.hours, utc_dt.minutes, utc_dt.seconds);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */

@@ -17,6 +17,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include "ab-rtcmc-rtc.h"
 
 /* Exported Types -----------------------------------------------------------*/
 typedef enum {
@@ -57,6 +58,9 @@ void vn_start(void);
 void vn_stop(void);
 bool vn_is_running(void);
 bool vn_drain_and_queue(void);
+bool vn_gps_fix(void);
+RTC_DateTime_t vn_get_utc_datetime(void);
+
 
 #ifdef __cplusplus
 }

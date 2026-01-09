@@ -17,6 +17,7 @@
 #include "stm32l4xx_hal.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -30,9 +31,14 @@ static VN_Packet_t latest_packet = {0};
 uint8_t dma_buffer_imu[DMA_BUFFER_SIZE] __attribute__((section(".dma_buffer_imu")));
 uint16_t dma_old_pos_imu = 0;
 
+double gps_tow;
+uint16_t gps_week;
+uint8_t vn_rx_buffer[256];
+
 /* Private function prototypes -----------------------------------------------*/
 static void send_command(const char* cmd);
 static void flush_rx(void);
+static RTC_DateTime_t convert_to_utc(uint16_t gps_week, double gps_tow);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -206,6 +212,75 @@ bool vn_drain_and_queue(void) {
   return packets_drained;
 }
 
+/** @brief  Check if a valid GPS fix is acquired
+  * @param  None
+  * @retval true if GPS fix is valid, false otherwise
+  * @note   Reads the GNSS LLA register and parses the fix status.
+  */
+bool vn_gps_fix(void) {
+  /* Read the GNSS LLA register to update fix status */
+  vn_read_gnss_lla();
+  
+  /* Check the response string to see if the fix status is >0 (valid fix) */
+  char* token;
+  token = strtok((char*)vn_rx_buffer, ",");
+  uint8_t field_index = 0;
+  bool fix_acquired = false;
+
+  while (token != NULL) {
+      field_index++;
+      if (field_index == 5) { /* Fix status is the 5th field */
+          uint8_t fix_status = atoi(token);
+          if (fix_status > 0) {
+              fix_acquired = true;
+          }
+          break;
+      }
+      token = strtok(NULL, ",");
+  }
+
+  return fix_acquired;
+}
+
+
+RTC_DateTime_t vn_get_utc_datetime(void) {
+    /* Read the GNSS LLA Register to get the current time */
+    vn_read_gnss_lla();
+
+    /* Parse the response to extract GPS week and TOW */
+    char* token;
+    token = strtok((char*)vn_rx_buffer, ",");
+    uint8_t field_index = 0;
+    bool have_tow = false;
+    bool have_week = false;
+    double tow_local = 0.0;
+    uint16_t week_local = 0;
+
+    while (token != NULL) {
+        field_index++;
+        if (field_index == 3) { /* GPS TOW is the 3rd field */
+        tow_local = atof(token);
+        have_tow = true;
+        } else if (field_index == 4) { /* GPS Week is the 4th field */
+        week_local = (uint16_t)atoi(token);
+        have_week = true;
+            break; /* We have both fields we need */
+        }
+        token = strtok(NULL, ",");
+    }
+
+    if (!have_tow || !have_week) {
+      RTC_DateTime_t invalid = {0};
+      return invalid;
+    }
+
+    /* Preserve parsed values for any other code that reads these globals */
+    gps_tow = tow_local;
+    gps_week = week_local;
+
+    return convert_to_utc(week_local, tow_local);
+}
+
 /* Private functions ---------------------------------------------------------*/
 
 /** @brief  Send a command to the vectornav using polling TX (blocking)
@@ -269,4 +344,49 @@ bool vn_validate_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* pac
   
   memcpy(packet, buffer_start, PACKET_SIZE);
   return true;
+}
+
+/**  @brief  Read the GNSS Solution - LLA Register
+  *  @param  None
+  *  @retval None
+  *  @note   Sends a command to read the GNSS LLA register and stores the response in vn_gnss_rx_buffer.
+  */
+void vn_read_gnss_lla(void) {
+    /* Flush RX buffer before sending command */
+    flush_rx();
+
+    /* Clear the rx buffer */
+    memset(vn_rx_buffer, 0, sizeof(vn_rx_buffer));
+
+    /* Send command to read GNSS LLA register */
+    send_command("$VNRRG,58*XX\n");
+
+    /* Wait for response */
+    HAL_Delay(1);
+
+    /* Read response into vn_rx_buffer */
+    uint8_t index = 0;
+    while (LL_USART_IsActiveFlag_RXNE(USART3) && index < sizeof(vn_rx_buffer) - 1) {
+        vn_rx_buffer[index++] = LL_USART_ReceiveData8(USART3);
+    }
+
+    /* Null-terminate the string */
+    vn_rx_buffer[index] = '\0';
+}
+
+static RTC_DateTime_t convert_to_utc(uint16_t gps_week, double gps_tow) {
+  /* Round the GPS Time of Week to nearest second */
+  uint32_t tow_rounded = (uint32_t)(gps_tow + 0.5);
+
+  /* Calculate total seconds since GPS epoch */
+  /* 604800 seconds per GPS week. Guard against overflow of 32-bit seconds. */
+  const uint32_t SECONDS_PER_WEEK = 604800U;
+  if ((uint32_t)gps_week > (UINT32_MAX / SECONDS_PER_WEEK)) {
+    RTC_DateTime_t invalid = {0};
+    return invalid;
+  }
+
+  uint32_t total_gps_seconds = ((uint32_t)gps_week * SECONDS_PER_WEEK) + tow_rounded;
+
+  return gps_to_datetime(total_gps_seconds);
 }
