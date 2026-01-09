@@ -75,7 +75,8 @@ static volatile uint8_t rtc_timer_flag = 0;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+void gps_time_sync(void);
+void systime_startup(void);
 void uart_rx_process_char(uint8_t ch);
 
 /* USER CODE END PFP */
@@ -154,34 +155,14 @@ int main(void)
   shell_printf("       SYSTEM INIT\r\n");
   shell_printf("===============================================\r\n");
 
-  /* Initialize RTC */
-  RTC_Init();
-
-  /* Get the current date/time from the RTC */
-  RTC_DateTime_t initial_dt;
-  RTC_GetDateTime(&initial_dt);
-
-  /* Initialize system time with the RTC date/time */
-  systime_init(&initial_dt);
-
-  /* print current system time from systime */
-  uint32_t full_epoch_sec = time_s_now();  /* time_s_now() already returns full epoch seconds */
-  RTC_DateTime_t current_dt;
-  current_dt = epoch_to_datetime(full_epoch_sec);
-  shell_printf("System time initialized to: %02d-%02d-20%02d %02d:%02d:%02d\r\n",
-              current_dt.months, current_dt.days, current_dt.years,
-              current_dt.hours, current_dt.minutes, current_dt.seconds);
-
-  shell_printf("Current timestamp: %s\r\n", timestamp(time_s_now()));
+  /* Initialize system time from RTC at startup */
+  systime_startup();
 
   /* Initialize the filesystem */
   filesystem_init();
 
   /* Initialize the task scheduler */
   tasker_init();
-
-  /* Initialize the shell */
-  shell_init();
 
   /* Initialize RS232 transceivers */
   transceiver_init();
@@ -198,25 +179,21 @@ int main(void)
   /* Allow time for SD card power and UART lines to stabilize and clear any flags */
   HAL_Delay(100);
 
-  shell_printf("System initialization complete.\r\n");
-  shell_printf("Getting GPS fix...\r\n");
+  /* Get a GPS fix */
+  shell_printf("Getting GPS fix...\n");
   while (!vn_gps_fix()) {
-      HAL_Delay(500);
+      HAL_Delay(5000);
       shell_printf(".");
   }
-  shell_printf("\r\nGPS fix acquired!\r\n");
+  shell_printf("GPS fix acquired!\n");
 
-  shell_printf("Setting RTC and System Time...\r\n");
-  /* Get current UTC date/time from VectorNav */
-  RTC_DateTime_t utc_dt = vn_get_utc_datetime();
-  /* Set RTC date/time */
-  RTC_SetDateTime(&utc_dt);
-  /* Set system time */
-  systime_init(&utc_dt);
+  /* Synchronize RTC and system time with GPS time from VectorNav */
+  gps_time_sync();
 
-  shell_printf("RTC and System Time set to: %02d-%02d-20%02d %02d:%02d:%02d\r\n",
-              utc_dt.months, utc_dt.days, utc_dt.years,
-              utc_dt.hours, utc_dt.minutes, utc_dt.seconds);
+  shell_printf("System initialization complete.\n");
+
+  /* Initialize the shell */
+  shell_init();
 
   /* USER CODE END 2 */
 
@@ -435,6 +412,77 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
 
+}
+
+/** @brief Initialize system time from RTC at startup
+  *  @param None
+  *  @retval None
+  *  @note   Reads the current date/time from the RTC and initializes systime module.
+  *         Prints the initialized system time to the shell.
+  */
+void systime_startup(void) {
+  /* Initialize RTC */
+  RTC_Init();
+
+  /* Get the current date/time from the RTC */
+  RTC_DateTime_t initial_dt;
+  RTC_GetDateTime(&initial_dt);
+
+  /* Initialize system time with the RTC date/time */
+  systime_init(&initial_dt);
+
+  /* print current system time from systime */
+  uint32_t full_epoch_sec = time_s_now();  /* time_s_now() already returns full epoch seconds */
+  RTC_DateTime_t current_dt;
+  current_dt = epoch_to_datetime(full_epoch_sec);
+  shell_printf("System time initialized to: %02d-%02d-20%02d %02d:%02d:%02d\r\n",
+              current_dt.months, current_dt.days, current_dt.years,
+              current_dt.hours, current_dt.minutes, current_dt.seconds);
+
+  shell_printf("Current timestamp: %s\r\n", timestamp(time_s_now()));
+}
+
+/** @brief Synchronize RTC and system time with GPS time from VectorNav
+  *  @param None
+  *  @retval None
+  *  @note  Reads GPS week and time-of-week from VectorNav and updates system time
+  */
+void gps_time_sync(void) {
+  shell_printf("Setting RTC and System Time (GPS time)...\r\n");
+  /* Get current GPS date/time from VectorNav (derived from GNSS week + TOW) */
+  RTC_DateTime_t gps_dt = {0};
+  const uint8_t MAX_TIME_ATTEMPTS = 10;
+  uint8_t time_attempts = 0;
+  while (time_attempts < MAX_TIME_ATTEMPTS) {
+    gps_dt = vn_get_gps_datetime();
+
+    bool dt_ok = (gps_dt.years <= 99) &&
+            (gps_dt.months >= 1 && gps_dt.months <= 12) &&
+            (gps_dt.days >= 1 && gps_dt.days <= 31) &&
+            (gps_dt.hours <= 23) &&
+            (gps_dt.minutes <= 59) &&
+            (gps_dt.seconds <= 59);
+
+    if (dt_ok) {
+      break;
+    }
+
+    time_attempts++;
+    HAL_Delay(50);
+  }
+
+  if (time_attempts < MAX_TIME_ATTEMPTS) {
+    
+    RTC_SetDateTime(&gps_dt);
+    
+    systime_init(&gps_dt);
+  } else {
+    shell_printf("WARNING: Failed to read valid time from VectorNav; leaving RTC unchanged.\r\n");
+  }
+  
+  shell_printf("RTC and System Time updated to GPS time: %02d-%02d-20%02d %02d:%02d:%02d\r\n",
+              gps_dt.months, gps_dt.days, gps_dt.years,
+              gps_dt.hours, gps_dt.minutes, gps_dt.seconds);
 }
 
 /* USER CODE END 4 */

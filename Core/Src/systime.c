@@ -224,10 +224,14 @@ uint32_t datetime_to_epoch(const RTC_DateTime_t* dt) {
  *  @note Handles leap years and valid ranges
  */
 RTC_DateTime_t epoch_to_datetime(uint32_t epoch) {
-    RTC_DateTime_t dt;
+    RTC_DateTime_t dt = {0};
     uint32_t total_seconds = epoch;
     uint32_t days = total_seconds / 86400U;
     uint32_t remaining_seconds = total_seconds % 86400U;
+
+    /* Calculate weekday (1=Sunday, 7=Saturday)
+     * 2000-01-01 was a Saturday (day 7 in 1=Sunday convention) */
+    dt.weekdays = ((days + 6) % 7) + 1;
 
     /* Find year */
     uint32_t year = 2000;

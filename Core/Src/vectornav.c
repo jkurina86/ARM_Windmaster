@@ -10,6 +10,7 @@
 #include "windmaster.h"
 #include "systime.h"
 #include "recorder.h"
+#include "shell.h"
 #include "stm32l4xx_ll_usart.h"
 #include "stm32l4xx_ll_dma.h"
 #include "stm32l4xx_ll_gpio.h"
@@ -25,20 +26,25 @@
 #define DMA_BUFFER_SIZE 1024 /* 1 KB for incoming IMU sensor data */
 #define PACKET_SIZE 86
 
+/* Set to 1 to enable verbose GNSS debug printing */
+#ifndef VN_DEBUG_GNSS
+#define VN_DEBUG_GNSS 0
+#endif
+
 /* Private variables ---------------------------------------------------------*/
 static bool imu_running = false;
 static VN_Packet_t latest_packet = {0};
 uint8_t dma_buffer_imu[DMA_BUFFER_SIZE] __attribute__((section(".dma_buffer_imu")));
 uint16_t dma_old_pos_imu = 0;
 
-double gps_tow;
-uint16_t gps_week;
 uint8_t vn_rx_buffer[256];
 
 /* Private function prototypes -----------------------------------------------*/
 static void send_command(const char* cmd);
 static void flush_rx(void);
-static RTC_DateTime_t convert_to_utc(uint16_t gps_week, double gps_tow);
+static void configure_dma_rx(uint8_t* buffer, uint16_t size);
+static void vn_read_gnss_lla(void);
+static RTC_DateTime_t convert_to_gps_datetime(uint16_t gps_week, double gps_tow);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -51,32 +57,27 @@ static RTC_DateTime_t convert_to_utc(uint16_t gps_week, double gps_tow);
   *         USART3 RX uses DMA1 Channel 3, TX uses DMA1 Channel 2.
   */
 void vn_init(void) {
-    /* Flush UART RX buffer before sending command (clear any pending data) */
-    flush_rx();
+  /* Flush UART RX buffer before sending command (clear any pending data) */
+  flush_rx();
 
-    /* Disable async mode in case it was left on from previous power cycle */
-    send_command("$VNWRG,75,0,20,00*F819\n");
+  /* Disable async mode in case it was left on from previous power cycle */
+  send_command("$VNWRG,75,0,20,00*F819\n");
 
-    /* Wait for the command echo and flush it */
-    HAL_Delay(10);
-    
-    flush_rx();
+  /* Wait for the command echo and flush it */
+  HAL_Delay(10);
+  
+  flush_rx();
 
-    /* Configure USART3 for DMA RX (TX will use polling) */
-    LL_USART_EnableDMAReq_RX(USART3);
+  /* Configure USART3 for DMA RX (TX will use polling) */
+  LL_USART_EnableDMAReq_RX(USART3);
 
-    /* Configure DMA RX addresses (DMA1 Channel 3) */
-    LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3,
-                          LL_USART_DMA_GetRegAddr(USART3, LL_USART_DMA_REG_DATA_RECEIVE),
-                          (uint32_t)dma_buffer_imu,
-                          LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+  /* Configure DMA RX (channel will be enabled when VectorNav starts) */
+  configure_dma_rx(dma_buffer_imu, DMA_BUFFER_SIZE);
 
-    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, DMA_BUFFER_SIZE);
+  /* Initialize latest packet */
+  memset(&latest_packet, 0, sizeof(VN_Packet_t));
 
-    /* DMA will be enabled when the VectorNav starts */
-
-    /* Initialize latest packet */
-    memset(&latest_packet, 0, sizeof(VN_Packet_t));
+  return;
 }
 
 /** @brief  Start the vectornav
@@ -86,31 +87,36 @@ void vn_init(void) {
   *         Starts the DMA channel for receiving binary data.
   */
 void vn_start(void) {
-    if (imu_running == false) {
-        /* Ensure that the DMA channel is disabled before sending command */
-        LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
+  if (imu_running == true) {
+    shell_printf("[VN] Warning: VN already running.\r\n");
+    return;
+  }
 
-        /* Flush UART RX buffer before sending command */
-        flush_rx();
+  /* Ensure that the DMA channel is disabled before sending command */
+  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
 
-        /* Enable async mode (50Hz binary output, divisor = 8) */
-        send_command("$VNWRG,75,1,8,01,01EA*07CF\n");
+  /* Flush UART RX buffer before sending command */
+  flush_rx();
 
-        /* Wait for response */
-        HAL_Delay(10);
+  /* Enable async mode (50Hz binary output, divisor = 8) */
+  send_command("$VNWRG,75,1,8,01,01EA*07CF\n");
 
-        /* Flush the ASCII echo response */
-        flush_rx();
+  /* Wait for response */
+  HAL_Delay(10);
 
-        /* Reset DMA buffer position tracking */
-        dma_old_pos_imu = 0;
+  /* Flush the ASCII echo response */
+  flush_rx();
 
-        /* Re-enable DMA to capture binary data stream */
-        LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, DMA_BUFFER_SIZE);
-        LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
+  /* Reset DMA buffer position tracking */
+  dma_old_pos_imu = 0;
 
-        imu_running = true;
-    }
+  /* Re-enable DMA to capture binary data stream */
+  configure_dma_rx(dma_buffer_imu, DMA_BUFFER_SIZE);
+  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
+
+  imu_running = true;
+
+  return;
 }
 
 /** @brief  Stop the VectorNav
@@ -218,6 +224,10 @@ bool vn_drain_and_queue(void) {
   * @note   Reads the GNSS LLA register and parses the fix status.
   */
 bool vn_gps_fix(void) {
+  if (imu_running) {
+    shell_printf("[VN] Error: Cannot check GPS fix while IMU is running.\r\n");  
+    return false;
+  }
   /* Read the GNSS LLA register to update fix status */
   vn_read_gnss_lla();
   
@@ -226,11 +236,12 @@ bool vn_gps_fix(void) {
   token = strtok((char*)vn_rx_buffer, ",");
   uint8_t field_index = 0;
   bool fix_acquired = false;
+  int fix_status = -1;
 
   while (token != NULL) {
       field_index++;
       if (field_index == 5) { /* Fix status is the 5th field */
-          uint8_t fix_status = atoi(token);
+          fix_status = atoi(token);
           if (fix_status > 0) {
               fix_acquired = true;
           }
@@ -239,46 +250,58 @@ bool vn_gps_fix(void) {
       token = strtok(NULL, ",");
   }
 
+  /*DEBUG*/
+  shell_printf("[VN] Fix status: %d\n", fix_status);
+
   return fix_acquired;
 }
 
+/** @brief  Get the current GPS date and time from the VectorNav
+  * @param  None
+  * @retval RTC_DateTime_t structure with GPS date and time
+  * @note   Reads the GNSS LLA register to extract GPS week and TOW,
+  *         converting them to the RTC date/time format.
+  */
+RTC_DateTime_t vn_get_gps_datetime(void) {
+  
+  if (imu_running) {
+    shell_printf("[VN] Error: Cannot get GPS datetime while IMU is running.\r\n");
+    RTC_DateTime_t invalid = {0};
+    return invalid;
+  }
+  
+  /* Read the GNSS LLA Register to get the current time */
+  vn_read_gnss_lla();
 
-RTC_DateTime_t vn_get_utc_datetime(void) {
-    /* Read the GNSS LLA Register to get the current time */
-    vn_read_gnss_lla();
+  /* Parse the response to extract GPS week and TOW */
+  char* token;
+  token = strtok((char*)vn_rx_buffer, ",");
+  uint8_t field_index = 0;
+  bool have_tow = false;
+  bool have_week = false;
+  double gps_tow = 0.0;
+  uint16_t gps_week = 0;
 
-    /* Parse the response to extract GPS week and TOW */
-    char* token;
-    token = strtok((char*)vn_rx_buffer, ",");
-    uint8_t field_index = 0;
-    bool have_tow = false;
-    bool have_week = false;
-    double tow_local = 0.0;
-    uint16_t week_local = 0;
-
-    while (token != NULL) {
-        field_index++;
-        if (field_index == 3) { /* GPS TOW is the 3rd field */
-        tow_local = atof(token);
-        have_tow = true;
-        } else if (field_index == 4) { /* GPS Week is the 4th field */
-        week_local = (uint16_t)atoi(token);
-        have_week = true;
-            break; /* We have both fields we need */
-        }
-        token = strtok(NULL, ",");
+  while (token != NULL) {
+    field_index++;
+    if (field_index == 3) { /* GPS TOW is the 3rd field */
+      gps_tow = atof(token);
+      have_tow = true;
+    } else if (field_index == 4) { /* GPS Week is the 4th field */
+      gps_week = (uint16_t)atoi(token);
+      have_week = true;
+      break; /* We have both fields we need */
     }
+    
+    token = strtok(NULL, ",");
+  }
 
-    if (!have_tow || !have_week) {
-      RTC_DateTime_t invalid = {0};
-      return invalid;
-    }
+  if (!have_tow || !have_week) {
+    RTC_DateTime_t invalid = {0};
+    return invalid;
+  }
 
-    /* Preserve parsed values for any other code that reads these globals */
-    gps_tow = tow_local;
-    gps_week = week_local;
-
-    return convert_to_utc(week_local, tow_local);
+  return convert_to_gps_datetime(gps_week, gps_tow);
 }
 
 /* Private functions ---------------------------------------------------------*/
@@ -317,6 +340,36 @@ static void flush_rx(void) {
   if (LL_USART_IsActiveFlag_IDLE(USART3)) {
     LL_USART_ClearFlag_IDLE(USART3);
   }
+
+  /* Clear any lingering UART error flags that can block reception */
+  if (LL_USART_IsActiveFlag_ORE(USART3)) {
+    LL_USART_ClearFlag_ORE(USART3);
+  }
+  if (LL_USART_IsActiveFlag_FE(USART3)) {
+    LL_USART_ClearFlag_FE(USART3);
+  }
+  if (LL_USART_IsActiveFlag_NE(USART3)) {
+    LL_USART_ClearFlag_NE(USART3);
+  }
+  if (LL_USART_IsActiveFlag_PE(USART3)) {
+    LL_USART_ClearFlag_PE(USART3);
+  }
+}
+
+/** @brief  Configure DMA RX channel for USART3
+  * @param  buffer: Pointer to the receive buffer
+  * @param  size: Size of the receive buffer in bytes
+  * @retval None
+  * @note   Disables the DMA channel, configures addresses and length.
+  *         Caller must enable the channel when ready to receive.
+  */
+static void configure_dma_rx(uint8_t* buffer, uint16_t size) {
+  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
+  LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3,
+                         LL_USART_DMA_GetRegAddr(USART3, LL_USART_DMA_REG_DATA_RECEIVE),
+                         (uint32_t)buffer,
+                         LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+  LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, size);
 }
 
 /** @brief  Validate a received VN packet
@@ -351,30 +404,62 @@ bool vn_validate_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* pac
   *  @retval None
   *  @note   Sends a command to read the GNSS LLA register and stores the response in vn_gnss_rx_buffer.
   */
-void vn_read_gnss_lla(void) {
-    /* Flush RX buffer before sending command */
-    flush_rx();
+static void vn_read_gnss_lla(void) {
+  /* Clear the rx buffer */
+  memset(vn_rx_buffer, 0, sizeof(vn_rx_buffer));
 
-    /* Clear the rx buffer */
-    memset(vn_rx_buffer, 0, sizeof(vn_rx_buffer));
+  /* Configure DMA to receive into vn_rx_buffer */
+  configure_dma_rx(vn_rx_buffer, sizeof(vn_rx_buffer));
+  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
+  LL_USART_EnableDMAReq_RX(USART3);
 
-    /* Send command to read GNSS LLA register */
-    send_command("$VNRRG,58*XX\n");
+  /* Send command to read GNSS LLA register */
+  send_command("$VNRRG,58*XX\n");
 
-    /* Wait for response */
-    HAL_Delay(1);
+  /* Wait for response to complete (IDLE flag or timeout) */
+  uint32_t timeout_start = HAL_GetTick();
+  const uint32_t TOTAL_TIMEOUT_MS = 200;
 
-    /* Read response into vn_rx_buffer */
-    uint8_t index = 0;
-    while (LL_USART_IsActiveFlag_RXNE(USART3) && index < sizeof(vn_rx_buffer) - 1) {
-        vn_rx_buffer[index++] = LL_USART_ReceiveData8(USART3);
+  while ((HAL_GetTick() - timeout_start) < TOTAL_TIMEOUT_MS) {
+    /* Check for IDLE (line quiet after reception) */
+    if (LL_USART_IsActiveFlag_IDLE(USART3)) {
+      LL_USART_ClearFlag_IDLE(USART3);
+      /* Small delay to ensure last byte is transferred */
+      HAL_Delay(1);
+      break;
     }
+  }
 
-    /* Null-terminate the string */
-    vn_rx_buffer[index] = '\0';
+  /* Stop DMA and get received length */
+  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
+  LL_USART_DisableDMAReq_RX(USART3);
+
+  uint16_t received = sizeof(vn_rx_buffer) - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_3);
+
+  /* Null-terminate the response */
+  if (received < sizeof(vn_rx_buffer)) {
+    vn_rx_buffer[received] = '\0';
+  } else {
+    vn_rx_buffer[sizeof(vn_rx_buffer) - 1] = '\0';
+  }
+
+  flush_rx();
+
+  /* Restore DMA to point back to dma_buffer_imu for normal operation */
+  configure_dma_rx(dma_buffer_imu, DMA_BUFFER_SIZE);
+
+  /* Restore DMA state */
+  LL_USART_EnableDMAReq_RX(USART3);
+
+  return;
 }
 
-static RTC_DateTime_t convert_to_utc(uint16_t gps_week, double gps_tow) {
+/**  @brief  Convert GPS week and time-of-week to RTC_DateTime_t
+  *  @param  gps_week: GPS week number
+  *  @param  gps_tow: GPS time of week in seconds
+  *  @retval RTC_DateTime_t structure with converted date and time
+  */
+static RTC_DateTime_t convert_to_gps_datetime(uint16_t gps_week, double gps_tow) {
   /* Round the GPS Time of Week to nearest second */
   uint32_t tow_rounded = (uint32_t)(gps_tow + 0.5);
 

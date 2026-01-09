@@ -229,7 +229,7 @@ def export_txt(records: List[RecorderData], output_path: Path):
             f.write("VectorNav Data:\n")
             f.write(f"GPS Time (RAW): {record.timegps} ns since 1980-01-01\n")
             f.write(
-                "GPS Time (UTC): "
+                "GPS Time: "
                 f"{gps_components['year']:04d}-{gps_components['month']:02d}-{gps_components['day']:02d} "
                 f"{gps_components['hour']:02d}:{gps_components['minute']:02d}:{gps_components['second']:02d}."
                 f"{gps_components['millisecond']:03d}{gps_components['microsecond']:03d}{gps_components['nanosecond']:03d}\n"
