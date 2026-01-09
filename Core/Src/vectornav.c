@@ -250,9 +250,6 @@ bool vn_gps_fix(void) {
       token = strtok(NULL, ",");
   }
 
-  /*DEBUG*/
-  shell_printf("[VN] Fix status: %d\n", fix_status);
-
   return fix_acquired;
 }
 

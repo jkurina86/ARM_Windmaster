@@ -132,8 +132,6 @@ int main(void)
   //MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
 
-  shell_printf("\r\nSystem initializing...\r\n");
-
   /* Start the free-running 1 MHz timer */
   LL_TIM_EnableCounter(TIM2);
 
@@ -151,48 +149,31 @@ int main(void)
   LL_TIM_EnableCounter(TIM4);
   */
 
-  shell_printf("\r\n===============================================\r\n");
-  shell_printf("       SYSTEM INIT\r\n");
+  shell_printf("\r\n===============================================\n");
+  shell_printf("       SYSTEM INIT\n");
   shell_printf("===============================================\r\n");
 
-  /* Initialize system time from RTC at startup */
   systime_startup();
-
-  /* Initialize the filesystem */
   filesystem_init();
-
-  /* Initialize the task scheduler */
   tasker_init();
-
-  /* Initialize RS232 transceivers */
   transceiver_init();
-
-  /* Initialize UART interrupts */
   init_uart_interrupts();
-
-  /* Initialize the WM - windmaster.c */
   wm_init();
-
-  /* Initialize the VN300 - vn.c */
   vn_init();
 
   /* Allow time for SD card power and UART lines to stabilize and clear any flags */
   HAL_Delay(100);
 
   /* Get a GPS fix */
-  shell_printf("Getting GPS fix...\n");
+  shell_printf("Getting GPS fix...");
   while (!vn_gps_fix()) {
       HAL_Delay(5000);
       shell_printf(".");
   }
-  shell_printf("GPS fix acquired!\n");
-
-  /* Synchronize RTC and system time with GPS time from VectorNav */
+  shell_printf("\nGPS fix acquired!\n");
   gps_time_sync();
 
   shell_printf("System initialization complete.\n");
-
-  /* Initialize the shell */
   shell_init();
 
   /* USER CODE END 2 */
@@ -438,8 +419,6 @@ void systime_startup(void) {
   shell_printf("System time initialized to: %02d-%02d-20%02d %02d:%02d:%02d\r\n",
               current_dt.months, current_dt.days, current_dt.years,
               current_dt.hours, current_dt.minutes, current_dt.seconds);
-
-  shell_printf("Current timestamp: %s\r\n", timestamp(time_s_now()));
 }
 
 /** @brief Synchronize RTC and system time with GPS time from VectorNav
@@ -448,7 +427,6 @@ void systime_startup(void) {
   *  @note  Reads GPS week and time-of-week from VectorNav and updates system time
   */
 void gps_time_sync(void) {
-  shell_printf("Setting RTC and System Time (GPS time)...\r\n");
   /* Get current GPS date/time from VectorNav (derived from GNSS week + TOW) */
   RTC_DateTime_t gps_dt = {0};
   const uint8_t MAX_TIME_ATTEMPTS = 10;
@@ -477,10 +455,10 @@ void gps_time_sync(void) {
     
     systime_init(&gps_dt);
   } else {
-    shell_printf("WARNING: Failed to read valid time from VectorNav; leaving RTC unchanged.\n");
+    shell_printf("WARNING: Failed to read valid time from VectorNav; leaving RTC unchanged.\r\n");
   }
   
-  shell_printf("RTC and System Time updated to GPS time: <%02d-%02d-20%02d, %02d:%02d:%02d>\n",
+  shell_printf("RTC and System Time updated to GPS time: %02d-%02d-20%02d %02d:%02d:%02d\r\n",
               gps_dt.months, gps_dt.days, gps_dt.years,
               gps_dt.hours, gps_dt.minutes, gps_dt.seconds);
 }

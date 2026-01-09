@@ -107,11 +107,10 @@ void shell_init(void)
     HAL_UART_Receive_IT(&huart1, &shell_rx_char, 1);
 
     /* Print welcome message */
-    shell_print("\r\n");
-    shell_print("===============================================\r\n");
-    shell_print("       System Shell\r\n");
-    shell_print("===============================================\r\n");
-    shell_print("Type 'help' for available commands\r\n\r\n");
+    shell_print("\n===============================================\n");
+    shell_print("       System Shell\n");
+    shell_print("===============================================\n");
+    shell_print("Type 'help' for available commands\r\n");
     shell_print(SHELL_PROMPT);
 }
 
