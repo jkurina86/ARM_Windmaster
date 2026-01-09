@@ -477,10 +477,10 @@ void gps_time_sync(void) {
     
     systime_init(&gps_dt);
   } else {
-    shell_printf("WARNING: Failed to read valid time from VectorNav; leaving RTC unchanged.\r\n");
+    shell_printf("WARNING: Failed to read valid time from VectorNav; leaving RTC unchanged.\n");
   }
   
-  shell_printf("RTC and System Time updated to GPS time: %02d-%02d-20%02d %02d:%02d:%02d\r\n",
+  shell_printf("RTC and System Time updated to GPS time: <%02d-%02d-20%02d, %02d:%02d:%02d>\n",
               gps_dt.months, gps_dt.days, gps_dt.years,
               gps_dt.hours, gps_dt.minutes, gps_dt.seconds);
 }
