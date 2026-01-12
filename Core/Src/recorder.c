@@ -10,6 +10,7 @@
 #include "filesystem.h"
 #include "systime.h"
 #include "shell.h"
+#include "calculations.h"
 #include <stdbool.h>
 
 /* Definitions ------------------------------------------------------------------*/
@@ -187,6 +188,9 @@ void recorder_queue_wm(const WM_Packet_t *pkt)
 
   /* Capture arrival timestamp */
   systime_snapshot(&wm_queue[wm_q_head].timestamp_s, &wm_queue[wm_q_head].timestamp_ms);
+
+  /* Add U and V to gust buffer */
+  add_gust_data(pkt->U_axis_speed, pkt->V_axis_speed);
 
   /* Enqueue the packet */
   wm_queue[wm_q_head].wm_packet = *pkt;

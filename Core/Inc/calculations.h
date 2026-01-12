@@ -13,7 +13,8 @@
 extern "C" {
 #endif
 
-
+/* Public function prototypes -----------------------------------------------*/
+void add_gust_data(int16_t u, int16_t v);
 
 #ifdef __cplusplus
 }
