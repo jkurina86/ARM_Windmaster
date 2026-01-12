@@ -85,10 +85,11 @@ STLinkLog.txt
 # Misc.
 .specify/
 .github/
-.kilocode*
+.kiloc*
 CLAUDE*
 log.txt
 vnsdk/
 nul
 matlab/
 logs/
+tmpc*

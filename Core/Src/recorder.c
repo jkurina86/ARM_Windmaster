@@ -189,9 +189,6 @@ void recorder_queue_wm(const WM_Packet_t *pkt)
   /* Capture arrival timestamp */
   systime_snapshot(&wm_queue[wm_q_head].timestamp_s, &wm_queue[wm_q_head].timestamp_ms);
 
-  /* Add U and V to gust buffer */
-  add_gust_data(pkt->U_axis_speed, pkt->V_axis_speed);
-
   /* Enqueue the packet */
   wm_queue[wm_q_head].wm_packet = *pkt;
   /* Advance head pointer */
@@ -415,7 +412,15 @@ static bool buffer_record(VN_QueueEntry_t* vn_entry, WM_QueueEntry_t* wm_entry, 
   Recorder_Data_t record = build_record(vn_entry, wm_entry, timing_offset_ms);
   Recorder_Data_t* dest = (Recorder_Data_t*)active_buffer + active_buf_index;
   memcpy(dest, &record, sizeof(Recorder_Data_t));
-  
+
+  /* Feed paired data to calculations module */
+  CalcSample_t calc_sample = {
+    .u = wm_entry->wm_packet.U_axis_speed,
+    .v = wm_entry->wm_packet.V_axis_speed,
+    .w = wm_entry->wm_packet.W_axis_speed
+  };
+  calc_add_sample(&calc_sample);
+
   active_buf_index++;
   
   /* Check if active buffer is full */

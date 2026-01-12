@@ -36,6 +36,7 @@
 #include "windmaster.h"
 #include "vectornav.h"
 #include "recorder.h"
+#include "calculations.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -156,6 +157,7 @@ int main(void)
   systime_startup();
   filesystem_init();
   tasker_init();
+  calc_init();
   transceiver_init();
   init_uart_interrupts();
   wm_init();
@@ -191,6 +193,9 @@ int main(void)
 
     /* Process recorder queues and write to SD, returns fast if not recording */
     recorder_service();
+
+    /* Process calculation buffers, returns fast if no buffer ready */
+    calc_service();
 
     /* Shell parsing, processing, and task scheduling */
     shell_task();
