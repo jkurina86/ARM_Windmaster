@@ -16,7 +16,13 @@
 
 /* Private defines -----------------------------------------------------------*/
 #define MM_TO_M    0.001f
+#define DEG_TO_RAD 0.01745329252f   /* M_PI / 180 */
 #define RAD_TO_DEG 57.29577951f     /* 180 / M_PI */
+
+/* Lever arm: IMU to anemometer offset vector R [m] in platform frame */
+#define LEVER_ARM_X  0.0f           /* X offset (lateral) */
+#define LEVER_ARM_Y  0.0f           /* Y offset (forward/aft) */
+#define LEVER_ARM_Z  0.8f           /* Z offset (IMU 0.8m below anemometer) */
 
 /* Private types -------------------------------------------------------------*/
 
@@ -85,11 +91,57 @@ static volatile CalcState_t state = CALC_STATE_COLLECTING;
 static CalcResults_t results;
 static uint8_t new_results_flag = 0;
 
+/* Report buffer in RAM2 (circular buffer for 30 minutes of reports) */
+__attribute__((section(".calc_reports")))
+static CalcReport_t report_buffer[CALC_REPORT_BUFFER_SIZE];
+
+static uint16_t report_count = 0;       /* Number of valid reports in buffer */
+static uint16_t report_head = 0;        /* Index of next write position */
+
 /* Private function prototypes -----------------------------------------------*/
+static void store_report(void);
 static void reset_accumulators(CalcAccum_t *a);
 static void finalize_linear(void);
 static void finalize_circular(void);
 static void finalize_gust(void);
+
+/**
+ * @brief  Transform wind vector from platform frame to Earth frame using Euler angles
+ * @param  u_p, v_p, w_p: Wind components in platform frame (m/s)
+ * @param  roll, pitch, yaw: Euler angles (radians)
+ * @param  u_e, v_e, w_e: Output wind components in Earth frame (m/s)
+ * @note   Uses ZYX aerospace rotation sequence: R = Rz(yaw) * Ry(pitch) * Rx(roll)
+ *         This rotates vectors from platform (body) frame to Earth (NED) frame.
+ */
+static void platform_to_earth(float u_p, float v_p, float w_p,
+                              float roll, float pitch, float yaw,
+                              float *u_e, float *v_e, float *w_e)
+{
+    /* Precompute trig functions */
+    float cos_phi = cosf(roll);
+    float sin_phi = sinf(roll);
+    float cos_theta = cosf(pitch);
+    float sin_theta = sinf(pitch);
+    float cos_psi = cosf(yaw);
+    float sin_psi = sinf(yaw);
+
+    /* Rotation matrix T (platform to Earth):
+     * Row 0: [cos_psi*cos_theta, -sin_psi*cos_phi + cos_psi*sin_theta*sin_phi, sin_psi*sin_phi + cos_psi*sin_theta*cos_phi]
+     * Row 1: [sin_psi*cos_theta,  cos_psi*cos_phi + sin_psi*sin_theta*sin_phi, sin_psi*sin_theta*cos_phi - cos_psi*sin_phi]
+     * Row 2: [-sin_theta,         cos_theta*sin_phi,                           cos_theta*cos_phi]
+     */
+    *u_e = (cos_psi * cos_theta) * u_p +
+           (-sin_psi * cos_phi + cos_psi * sin_theta * sin_phi) * v_p +
+           (sin_psi * sin_phi + cos_psi * sin_theta * cos_phi) * w_p;
+
+    *v_e = (sin_psi * cos_theta) * u_p +
+           (cos_psi * cos_phi + sin_psi * sin_theta * sin_phi) * v_p +
+           (sin_psi * sin_theta * cos_phi - cos_psi * sin_phi) * w_p;
+
+    *w_e = (-sin_theta) * u_p +
+           (cos_theta * sin_phi) * v_p +
+           (cos_theta * cos_phi) * w_p;
+}
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -107,16 +159,44 @@ void calc_init(void)
 
 /**
  * @brief  Add a sample and update running statistics
- * @param  sample: Pointer to CalcSample_t with WindMaster data
+ * @param  sample: Pointer to CalcSample_t with WindMaster and attitude data
+ * @note   Wind is motion-corrected and transformed to Earth frame:
+ *         U_earth = T(roll,pitch,yaw) × [U_obs + Omega × R]
+ *         where Omega × R accounts for anemometer velocity due to platform rotation
  */
 void calc_add_sample(const CalcSample_t *sample)
 {
-    /* Convert to meters and compute derived values */
-    float u_m = sample->u * MM_TO_M;
-    float v_m = sample->v * MM_TO_M;
-    float w_m = sample->w * MM_TO_M;
+    /* Convert platform-frame wind from mm/s to m/s */
+    float u_obs = sample->u * MM_TO_M;
+    float v_obs = sample->v * MM_TO_M;
+    float w_obs = sample->w * MM_TO_M;
+
+    /* Compute angular velocity correction: Omega × R
+     * Cross product: [gy*Rz - gz*Ry, gz*Rx - gx*Rz, gx*Ry - gy*Rx]
+     * With R = (0, 0, 0.8): correction = (0.8*gy, -0.8*gx, 0) */
+    float omega_cross_r_x = sample->gyro_y * LEVER_ARM_Z - sample->gyro_z * LEVER_ARM_Y;
+    float omega_cross_r_y = sample->gyro_z * LEVER_ARM_X - sample->gyro_x * LEVER_ARM_Z;
+    float omega_cross_r_z = sample->gyro_x * LEVER_ARM_Y - sample->gyro_y * LEVER_ARM_X;
+
+    /* Apply angular velocity correction: U_corrected = U_obs + Omega × R */
+    float u_corrected = u_obs + omega_cross_r_x;
+    float v_corrected = v_obs + omega_cross_r_y;
+    float w_corrected = w_obs + omega_cross_r_z;
+
+    /* Convert Euler angles from degrees to radians */
+    float roll_rad = sample->roll * DEG_TO_RAD;
+    float pitch_rad = sample->pitch * DEG_TO_RAD;
+    float yaw_rad = sample->yaw * DEG_TO_RAD;
+
+    /* Transform corrected wind from platform frame to Earth frame */
+    float u_m, v_m, w_m;
+    platform_to_earth(u_corrected, v_corrected, w_corrected,
+                      roll_rad, pitch_rad, yaw_rad,
+                      &u_m, &v_m, &w_m);
+
+    /* Compute derived values from Earth-frame wind */
     float wspd = sqrtf(u_m * u_m + v_m * v_m);
-    float wdir_rad = atan2f((float)sample->u, (float)sample->v);
+    float wdir_rad = atan2f(u_m, v_m);
 
     /* Update Wind direction accumulators (circular) */
     accum.wdir_sin_sum += sinf(wdir_rad);
@@ -208,6 +288,9 @@ void calc_service(void)
             results.sample_count = accum_snapshot.n;
             results.valid = 1;
             new_results_flag = 1;
+
+            /* Store report to RAM2 circular buffer */
+            store_report();
 
             state = CALC_STATE_DONE;
             break;
@@ -323,4 +406,65 @@ static void finalize_gust(void)
     } else {
         results.gust_wnd_stddev = 0;
     }
+}
+
+/**
+ * @brief  Store current results to report buffer
+ */
+static void store_report(void)
+{
+    CalcReport_t *report = &report_buffer[report_head];
+
+    report->timestamp_s = results.timestamp_s;
+    report->u_mean = results.uwnd_mean;
+    report->u_std = results.uwnd_stddev;
+    report->v_mean = results.vwnd_mean;
+    report->v_std = results.vwnd_stddev;
+    report->w_mean = results.wwnd_mean;
+    report->w_std = results.wwnd_stddev;
+    report->wspd_mean = results.wind_speed_mean;
+    report->wspd_std = results.wind_speed_stddev;
+    report->wdir_mean = results.wind_from_mean;
+    report->wdir_std = results.wind_from_stddev;
+    report->gust_mean = results.gust_wnd_mean;
+    report->gust_std = results.gust_wnd_stddev;
+
+    /* Advance head (circular) */
+    report_head++;
+    if (report_head >= CALC_REPORT_BUFFER_SIZE) {
+        report_head = 0;
+    }
+
+    /* Track count (saturates at buffer size) */
+    if (report_count < CALC_REPORT_BUFFER_SIZE) {
+        report_count++;
+    }
+}
+
+/**
+ * @brief  Get pointer to report buffer in RAM2
+ */
+CalcReport_t* calc_get_report_buffer(void)
+{
+    return report_buffer;
+}
+
+/**
+ * @brief  Get current number of reports in buffer
+ */
+uint16_t calc_get_report_count(void)
+{
+    return report_count;
+}
+
+/**
+ * @brief  Get index of most recent report in buffer
+ */
+int16_t calc_get_report_head(void)
+{
+    if (report_count == 0) {
+        return -1;
+    }
+    /* Head points to next write position, so most recent is head - 1 */
+    return (report_head == 0) ? (CALC_REPORT_BUFFER_SIZE - 1) : (report_head - 1);
 }

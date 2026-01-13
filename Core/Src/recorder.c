@@ -413,11 +413,17 @@ static bool buffer_record(VN_QueueEntry_t* vn_entry, WM_QueueEntry_t* wm_entry, 
   Recorder_Data_t* dest = (Recorder_Data_t*)active_buffer + active_buf_index;
   memcpy(dest, &record, sizeof(Recorder_Data_t));
 
-  /* Feed paired data to calculations module */
+  /* Feed paired data to calculations module (with attitude + gyro for motion correction) */
   CalcSample_t calc_sample = {
     .u = wm_entry->wm_packet.U_axis_speed,
     .v = wm_entry->wm_packet.V_axis_speed,
-    .w = wm_entry->wm_packet.W_axis_speed
+    .w = wm_entry->wm_packet.W_axis_speed,
+    .roll = vn_entry->vn_packet.roll,
+    .pitch = vn_entry->vn_packet.pitch,
+    .yaw = vn_entry->vn_packet.yaw,
+    .gyro_x = vn_entry->vn_packet.gyro_x,
+    .gyro_y = vn_entry->vn_packet.gyro_y,
+    .gyro_z = vn_entry->vn_packet.gyro_z
   };
   calc_add_sample(&calc_sample);
 

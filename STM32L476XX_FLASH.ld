@@ -50,6 +50,7 @@ MEMORY
   RAM2_IMU    (xrw)    : ORIGIN = 0x10000400,   LENGTH = 1K
   RAM2_REC    (xrw)    : ORIGIN = 0x10000800,   LENGTH = 8K
   RAM2_QUEUES (xrw) : ORIGIN = 0x10002800,   LENGTH = 2K
+  RAM2_CALC   (xrw) : ORIGIN = 0x10003000,   LENGTH = 2K
   FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1024K
 }
 
@@ -199,6 +200,11 @@ SECTIONS
   {
     *(.queue_vn)
   } >RAM2_QUEUES
+
+  .calc_reports :
+  {
+    *(.calc_reports)
+  } >RAM2_CALC
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :
