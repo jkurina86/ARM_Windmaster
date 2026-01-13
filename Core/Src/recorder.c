@@ -423,7 +423,9 @@ static bool buffer_record(VN_QueueEntry_t* vn_entry, WM_QueueEntry_t* wm_entry, 
     .yaw = vn_entry->vn_packet.yaw,
     .gyro_x = vn_entry->vn_packet.gyro_x,
     .gyro_y = vn_entry->vn_packet.gyro_y,
-    .gyro_z = vn_entry->vn_packet.gyro_z
+    .gyro_z = vn_entry->vn_packet.gyro_z,
+    .latitude = vn_entry->vn_packet.latitude,
+    .longitude = vn_entry->vn_packet.longitude
   };
   calc_add_sample(&calc_sample);
 

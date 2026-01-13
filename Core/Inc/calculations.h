@@ -40,6 +40,9 @@ typedef struct {
     float gyro_x;       /* Angular velocity about X-axis (rad/s) */
     float gyro_y;       /* Angular velocity about Y-axis (rad/s) */
     float gyro_z;       /* Angular velocity about Z-axis (rad/s) */
+    /* From VectorNav - position */
+    double latitude;    /* Latitude (degrees) */
+    double longitude;   /* Longitude (degrees) */
 } CalcSample_t;
 
 /**
@@ -47,29 +50,29 @@ typedef struct {
  * @note  Updated every 60 seconds when accumulation period completes
  */
 typedef struct {
-    /* Wind Direction (FROM) - degrees (0-360) */
-    float wind_from_mean;
-    float wind_from_stddev;
+    /* Wind direction (FROM) - degrees (0-360) */
+    float wind_direction_mean;
+    float wind_direction_stddev;
 
-    /* Wind Speed (horizontal magnitude) - m/s */
+    /* Wind speed (horizontal magnitude) - m/s */
     float wind_speed_mean;
     float wind_speed_stddev;
 
-    /* U Wind component - m/s */
-    float uwnd_mean;
-    float uwnd_stddev;
+    /* U wind component (East) - m/s */
+    float u_mean;
+    float u_stddev;
 
-    /* V Wind component - m/s */
-    float vwnd_mean;
-    float vwnd_stddev;
+    /* V wind component (North) - m/s */
+    float v_mean;
+    float v_stddev;
 
-    /* W Wind component - m/s */
-    float wwnd_mean;
-    float wwnd_stddev;
+    /* W wind component (Up) - m/s */
+    float w_mean;
+    float w_stddev;
 
     /* Gust (max 3-sec mean in 1 minute) - m/s */
-    float gust_wnd_mean;
-    float gust_wnd_stddev;
+    float gust_mean;
+    float gust_stddev;
 
     /* Metadata */
     uint32_t timestamp_s;       /* Epoch seconds when calculation completed */
@@ -83,76 +86,31 @@ typedef struct {
  */
 typedef struct {
     uint32_t timestamp_s;       /* Epoch seconds when report was generated */
+    double latitude;            /* Latitude (degrees) */
+    double longitude;           /* Longitude (degrees) */
     float u_mean;               /* U (East) wind component mean (m/s) */
     float u_std;                /* U (East) wind component stddev (m/s) */
     float v_mean;               /* V (North) wind component mean (m/s) */
     float v_std;                /* V (North) wind component stddev (m/s) */
     float w_mean;               /* W (Up) wind component mean (m/s) */
     float w_std;                /* W (Up) wind component stddev (m/s) */
-    float wspd_mean;            /* Horizontal wind speed mean (m/s) */
-    float wspd_std;             /* Horizontal wind speed stddev (m/s) */
-    float wdir_mean;            /* Wind direction mean (degrees, 0-360) */
-    float wdir_std;             /* Wind direction stddev (degrees) */
+    float wind_speed_mean;      /* Horizontal wind speed mean (m/s) */
+    float wind_speed_std;       /* Horizontal wind speed stddev (m/s) */
+    float wind_dir_mean;        /* Wind direction mean (degrees, 0-360) */
+    float wind_dir_std;         /* Wind direction stddev (degrees) */
     float gust_mean;            /* Gust (max 3-sec mean) (m/s) */
     float gust_std;             /* Gust stddev (m/s) */
 } CalcReport_t;
 
 /* Public function prototypes ------------------------------------------------*/
 
-/**
- * @brief  Initialize the calculations module
- * @note   Clears accumulators and resets state. Call once at startup.
- */
 void calc_init(void);
-
-/**
- * @brief  Add a sample and update running statistics
- * @param  sample: Pointer to CalcSample_t with WindMaster data
- * @note   Called from recorder at 20Hz when records are paired.
- *         Incrementally updates all running sums.
- *         When period completes (1200 samples), snapshots accumulators
- *         and sets ready flag for calc_service() to finalize.
- */
 void calc_add_sample(const CalcSample_t *sample);
-
-/**
- * @brief  Service function to finalize ready calculations
- * @note   Call from main loop. Finalizes statistics when period completes.
- *         Non-blocking: only does fast arithmetic (no iteration).
- *         Uses state machine to yield between stages if needed.
- */
 void calc_service(void);
-
-/**
- * @brief  Get pointer to latest calculation results
- * @retval Pointer to CalcResults_t structure
- * @note   Check results->valid before using values.
- */
 CalcResults_t* calc_get_results(void);
-
-/**
- * @brief  Check if new results are available
- * @retval 1 if new results ready since last check, 0 otherwise
- * @note   Clears the "new results" flag when called.
- */
 uint8_t calc_results_ready(void);
-
-/**
- * @brief  Get pointer to report buffer in RAM2
- * @retval Pointer to CalcReport_t array of size CALC_REPORT_BUFFER_SIZE
- */
 CalcReport_t* calc_get_report_buffer(void);
-
-/**
- * @brief  Get current number of reports in buffer
- * @retval Number of valid reports (0 to CALC_REPORT_BUFFER_SIZE)
- */
 uint16_t calc_get_report_count(void);
-
-/**
- * @brief  Get index of most recent report in buffer
- * @retval Index of newest report, or -1 if buffer is empty
- */
 int16_t calc_get_report_head(void);
 
 #ifdef __cplusplus
