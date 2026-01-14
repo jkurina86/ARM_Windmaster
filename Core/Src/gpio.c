@@ -123,8 +123,7 @@ void MX_GPIO_Init(void)
   * @param  None
   * @retval None
   */
-void transceiver_init(void)
-{
+void transceiver_init(void) {
   /* Set PB0 GPIO high - ENABLE pin for the USART3 RS232 transceiver */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
 

@@ -27,7 +27,7 @@
 /* Private types -------------------------------------------------------------*/
 
 /**
- * @brief Running accumulators for incremental statistics
+ * @brief Running accumulators for moving averages
  * @note  Updated in calc_add_sample(), finalized in calc_service()
  */
 typedef struct {
@@ -115,8 +115,7 @@ static void platform_to_earth(float u_p, float v_p, float w_p,
 /**
  * @brief  Initialize the calculations module
  */
-void calc_init(void)
-{
+void calc_init(void) {
     reset_accumulators(&accum_active);
     memset(&accum_ready, 0, sizeof(CalcAccum_t));
     memset(&results, 0, sizeof(CalcResults_t));
@@ -131,8 +130,7 @@ void calc_init(void)
  *         U_earth = T(roll,pitch,yaw) × [U_obs + Omega * R]
  *         where Omega × R accounts for windmaster velocity due to platform rotation
  */
-void calc_add_sample(const CalcSample_t *sample)
-{
+void calc_add_sample(const CalcSample_t *sample) {
     /* Convert platform-frame wind from mm/s to m/s */
     float u_obs = sample->u * MM_TO_M;
     float v_obs = sample->v * MM_TO_M;
@@ -230,13 +228,10 @@ void calc_add_sample(const CalcSample_t *sample)
  * @note   State machine allows yielding between stages
  *         Non-blocking: Lets the main loop run between stages
  */
-void calc_service(void)
-{
+void calc_service(void) {
     switch (state) {
         case CALC_STATE_READY:
-            /* Start finalization - transition to first stage */
             state = CALC_STATE_FINALIZE_LINEAR;
-            /* Fall through to start immediately */
             /* fallthrough */
 
         case CALC_STATE_FINALIZE_LINEAR:
@@ -282,8 +277,7 @@ void calc_service(void)
  * @retval Pointer to CalcResults_t structure
  * @note   Check if results are valid before using values.
  */
-CalcResults_t* calc_get_results(void)
-{
+CalcResults_t* calc_get_results(void) {
     return &results;
 }
 
@@ -292,8 +286,7 @@ CalcResults_t* calc_get_results(void)
  * @retval 1 if new results ready since last check, 0 otherwise
  * @note   Clears the "new results" flag when called.
  */
-uint8_t calc_results_ready(void)
-{
+uint8_t calc_results_ready(void) {
     uint8_t ready = new_results_flag;
     new_results_flag = 0;
     return ready;
@@ -306,8 +299,7 @@ uint8_t calc_results_ready(void)
  * @param  a: Pointer to CalcAccum_t structure to reset
  * @retval None
  */
-static void reset_accumulators(CalcAccum_t *a)
-{
+static void reset_accumulators(CalcAccum_t *a) {
     memset(a, 0, sizeof(CalcAccum_t));
 }
 
@@ -315,8 +307,7 @@ static void reset_accumulators(CalcAccum_t *a)
  * @brief  Finalize linear statistics (wind speed, U, V, W)
  * @note   Computes mean and stddev from running sums
  */
-static void finalize_linear(void)
-{
+static void finalize_linear(void) {
     const float n = (float)accum_ready.n;
     if (n < 1.0f) return;
 
@@ -361,8 +352,7 @@ static void finalize_linear(void)
  * @brief  Finalize circular statistics (wind direction)
  * @note   Uses resultant length method for circular stddev
  */
-static void finalize_circular(void)
-{
+static void finalize_circular(void) {
     const float n = (float)accum_ready.n;
     if (n < 1.0f) return;
 
@@ -387,8 +377,7 @@ static void finalize_circular(void)
  * @brief  Finalize gust statistics
  * @note   Computes mean and stddev of maximum 3-sec window
  */
-static void finalize_gust(void)
-{
+static void finalize_gust(void) {     
     results.gust_mean = accum_ready.gust_max_mean;
 
     /* Compute stddev of the 3-sec window that had maximum mean */
@@ -409,8 +398,7 @@ static void finalize_gust(void)
  * @brief  Store current results to report buffer
  * @retval None
  */
-static void store_report(void)
-{
+static void store_report(void) {
     CalcReport_t *report = &report_buffer[report_head];
 
     report->timestamp_s = results.timestamp_s;
@@ -445,8 +433,7 @@ static void store_report(void)
  * @brief  Get pointer to report buffer in RAM2
  * @retval Pointer to CalcReport_t array of size CALC_REPORT_BUFFER_SIZE
  */
-CalcReport_t* calc_get_report_buffer(void)
-{
+CalcReport_t* calc_get_report_buffer(void) {
     return report_buffer;
 }
 
@@ -454,8 +441,7 @@ CalcReport_t* calc_get_report_buffer(void)
  * @brief  Get current number of reports in buffer
  * @retval Number of valid reports (0 to CALC_REPORT_BUFFER_SIZE)
  */
-uint16_t calc_get_report_count(void)
-{
+uint16_t calc_get_report_count(void) {
     return report_count;
 }
 
@@ -463,8 +449,7 @@ uint16_t calc_get_report_count(void)
  * @brief  Get index of most recent report in buffer
  * @retval Index of most recent report, or -1 if buffer is empty
  */
-int16_t calc_get_report_head(void)
-{
+int16_t calc_get_report_head(void) {
     if (report_count == 0) {
         return -1;
     }
@@ -499,7 +484,7 @@ static void platform_to_earth(float u_p, float v_p, float w_p,
     /* Rotation matrix T (platform to Earth):
      * Row 0: [cos_psi*cos_theta, -sin_psi*cos_phi + cos_psi*sin_theta*sin_phi, sin_psi*sin_phi + cos_psi*sin_theta*cos_phi]
      * Row 1: [sin_psi*cos_theta,  cos_psi*cos_phi + sin_psi*sin_theta*sin_phi, sin_psi*sin_theta*cos_phi - cos_psi*sin_phi]
-     * Row 2: [-sin_theta,         cos_theta*sin_phi,                           cos_theta*cos_phi]
+     * Row 2: [-sin_theta,                   cos_theta*sin_phi,                                           cos_theta*cos_phi]
      */
     *u_e = (cos_psi * cos_theta) * u_p +
            (-sin_psi * cos_phi + cos_psi * sin_theta * sin_phi) * v_p +

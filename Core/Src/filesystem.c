@@ -28,8 +28,7 @@ static FS_Result_t convert_fatfs_result(FRESULT result);
   * @brief Initialize the filesystem module
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_init(void)
-{
+FS_Result_t filesystem_init(void) {
     /* Clear buffers */
     memset(&fs_buffers, 0, sizeof(fs_buffers));
     
@@ -45,8 +44,7 @@ FS_Result_t filesystem_init(void)
   * @brief Mount the file system
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_mount(void)
-{
+FS_Result_t filesystem_mount(void) {
     if (fs_mounted) {
         return FS_ALREADY_MOUNTED;
     }
@@ -64,8 +62,7 @@ FS_Result_t filesystem_mount(void)
   * @brief Unmount the file system
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_unmount(void)
-{
+FS_Result_t filesystem_unmount(void) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -83,8 +80,7 @@ FS_Result_t filesystem_unmount(void)
   * @brief Check if filesystem is mounted
   * @retval bool: true if mounted, false otherwise
   */
-bool filesystem_is_mounted(void)
-{
+bool filesystem_is_mounted(void) {
     return fs_mounted != 0;
 }
 
@@ -95,8 +91,7 @@ bool filesystem_is_mounted(void)
   * @param used_percent: Pointer to store used space percentage
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_df(uint32_t *total_bytes, uint32_t *free_bytes, uint32_t *used_percent)
-{
+FS_Result_t filesystem_df(uint32_t *total_bytes, uint32_t *free_bytes, uint32_t *used_percent) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -135,8 +130,7 @@ FS_Result_t filesystem_df(uint32_t *total_bytes, uint32_t *free_bytes, uint32_t 
   * @param print_callback: Function to call for each directory entry
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_ls(void (*print_callback)(const char *))
-{
+FS_Result_t filesystem_ls(void (*print_callback)(const char *)) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -173,8 +167,7 @@ FS_Result_t filesystem_ls(void (*print_callback)(const char *))
   * @param dirname: Directory name to create
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_mkdir(const char *dirname)
-{
+FS_Result_t filesystem_mkdir(const char *dirname) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -196,8 +189,7 @@ FS_Result_t filesystem_mkdir(const char *dirname)
   * @param dirname: Directory name to remove
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_rmdir(const char *dirname)
-{
+FS_Result_t filesystem_rmdir(const char *dirname) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -220,8 +212,7 @@ FS_Result_t filesystem_rmdir(const char *dirname)
   * @param print_callback: Function to call for file content output
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_cat(const char *filename, void (*print_callback)(const char *))
-{
+FS_Result_t filesystem_cat(const char *filename, void (*print_callback)(const char *)) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -250,8 +241,7 @@ FS_Result_t filesystem_cat(const char *filename, void (*print_callback)(const ch
   * @param data: Text data to write to file
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_write(const char *filename, const char *data)
-{
+FS_Result_t filesystem_write(const char *filename, const char *data) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -280,8 +270,7 @@ FS_Result_t filesystem_write(const char *filename, const char *data)
  * @param data: Text data to append to file
  * @retval FS_Result_t: Operation result
  */
-FS_Result_t filesystem_append(const char *filename, const char *data)
-{
+FS_Result_t filesystem_append(const char *filename, const char *data) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -309,8 +298,7 @@ FS_Result_t filesystem_append(const char *filename, const char *data)
   * @param filename: Name of file to delete
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_rm(const char *filename)
-{
+FS_Result_t filesystem_rm(const char *filename) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -333,8 +321,7 @@ FS_Result_t filesystem_rm(const char *filename)
   * @param destination: Destination file name
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_cp(const char *source, const char *destination)
-{
+FS_Result_t filesystem_cp(const char *source, const char *destination) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -375,8 +362,7 @@ FS_Result_t filesystem_cp(const char *source, const char *destination)
   * @param filename: Name of the log file to open
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_open_log(FIL* log_file, const char* filename)
-{
+FS_Result_t filesystem_open_log(FIL* log_file, const char* filename) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -400,8 +386,7 @@ FS_Result_t filesystem_open_log(FIL* log_file, const char* filename)
   * @param buffer: Pointer to buffer containing 4 Recorder_Data_t structs
   * @retval FS_Result_t: Operation result
   */
-FS_Result_t filesystem_log_record(FIL* log_file, const Recorder_Data_t *buffer)
-{
+FS_Result_t filesystem_log_record(FIL* log_file, const Recorder_Data_t *buffer) {
     if (!fs_mounted) {
         return FS_NOT_MOUNTED;
     }
@@ -423,8 +408,7 @@ FS_Result_t filesystem_log_record(FIL* log_file, const Recorder_Data_t *buffer)
   * @brief Get filesystem buffers for shell integration
   * @retval FS_Buffers_t*: Pointer to filesystem buffers
   */
-FS_Buffers_t* filesystem_get_buffers(void)
-{
+FS_Buffers_t* filesystem_get_buffers(void) {
     return &fs_buffers;
 }
 
@@ -436,8 +420,7 @@ FS_Buffers_t* filesystem_get_buffers(void)
   * @retval FS_Result_t: Converted result
   * @note This is done to avoid exposing FatFS types outside this module
   */
-static FS_Result_t convert_fatfs_result(FRESULT result)
-{
+static FS_Result_t convert_fatfs_result(FRESULT result) {
     switch (result) {
         case FR_OK:
             return FS_OK;

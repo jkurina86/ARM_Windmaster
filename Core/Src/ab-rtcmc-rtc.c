@@ -34,8 +34,7 @@ static RTC_Status_t RTC_WaitForEEPROMReady(uint32_t timeout_ms);
   * @param  size: number of bytes to transmit
   * @retval RTC status
   */
-static RTC_Status_t RTC_SPITransmit(uint8_t* data, uint16_t size)
-{
+static RTC_Status_t RTC_SPITransmit(uint8_t* data, uint16_t size) {
     if (HAL_SPI_Transmit(&hspi2, data, size, RTC_SPI_TIMEOUT) != HAL_OK) {
         return RTC_TIMEOUT;
     }
@@ -49,16 +48,14 @@ static RTC_Status_t RTC_SPITransmit(uint8_t* data, uint16_t size)
   * @param  size: number of bytes to transfer
   * @retval RTC status
   */
-static RTC_Status_t RTC_SPITransmitReceive(uint8_t* tx_data, uint8_t* rx_data, uint16_t size)
-{
+static RTC_Status_t RTC_SPITransmitReceive(uint8_t* tx_data, uint8_t* rx_data, uint16_t size) {
     if (HAL_SPI_TransmitReceive(&hspi2, tx_data, rx_data, size, RTC_SPI_TIMEOUT) != HAL_OK) {
         return RTC_TIMEOUT;
     }
     return RTC_OK;
 }
 
-static RTC_Status_t RTC_WaitForEEPROMReady(uint32_t timeout_ms)
-{
+static RTC_Status_t RTC_WaitForEEPROMReady(uint32_t timeout_ms) {
     const uint32_t start_tick = HAL_GetTick();
     uint8_t status;
 
@@ -86,8 +83,7 @@ static RTC_Status_t RTC_WaitForEEPROMReady(uint32_t timeout_ms)
   * @brief  Initialize the RTC
   * @retval RTC status
   */
-RTC_Status_t RTC_Init(void)
-{
+RTC_Status_t RTC_Init(void) {
     /* Ensure CS pin is Low */
     RTC_CS_DESELECT();
     
@@ -152,8 +148,7 @@ RTC_Status_t RTC_Init(void)
   * @brief  Deinitialize the RTC
   * @retval RTC status
   */
-RTC_Status_t RTC_DeInit(void)
-{
+RTC_Status_t RTC_DeInit(void) {
     /* Disable clock output */
     RTC_EnableClockOutput(false);
 
@@ -172,8 +167,7 @@ RTC_Status_t RTC_DeInit(void)
   * @param  data: data to write
   * @retval RTC status
   */
-RTC_Status_t RTC_WriteRegister(uint8_t reg, uint8_t data)
-{
+RTC_Status_t RTC_WriteRegister(uint8_t reg, uint8_t data) {
     uint8_t tx_data[2];
 
     tx_data[0] = RTC_CMD_WRITE | reg; /* Mask the register address with write command: 0000 0000 */
@@ -192,8 +186,7 @@ RTC_Status_t RTC_WriteRegister(uint8_t reg, uint8_t data)
   * @param  data: pointer to store read data
   * @retval RTC status
   */
-RTC_Status_t RTC_ReadRegister(uint8_t reg, uint8_t* data)
-{
+RTC_Status_t RTC_ReadRegister(uint8_t reg, uint8_t* data) {
     uint8_t tx_data[2];
     uint8_t rx_data[2];
     
@@ -223,8 +216,7 @@ RTC_Status_t RTC_ReadRegister(uint8_t reg, uint8_t* data)
   * @retval RTC status
   * @note   This function relies on the buffer being large enough to hold 'count' bytes.
   */
-RTC_Status_t RTC_ReadMultipleRegisters(uint8_t start_reg, uint8_t* buffer, uint8_t count)
-{
+RTC_Status_t RTC_ReadMultipleRegisters(uint8_t start_reg, uint8_t* buffer, uint8_t count) {
     if (buffer == NULL || count == 0) {
         return RTC_INVALID_PARAM;
     }
@@ -246,8 +238,7 @@ RTC_Status_t RTC_ReadMultipleRegisters(uint8_t start_reg, uint8_t* buffer, uint8
   * @param  datetime: pointer to datetime struct
   * @retval RTC status
   */
-RTC_Status_t RTC_SetDateTime(RTC_DateTime_t* datetime)
-{
+RTC_Status_t RTC_SetDateTime(RTC_DateTime_t* datetime) {
     /* NULL check */
     if (datetime == NULL) {
         return RTC_INVALID_PARAM;
@@ -294,11 +285,10 @@ RTC_Status_t RTC_SetDateTime(RTC_DateTime_t* datetime)
   * @param  datetime: pointer to datetime struct
   * @retval RTC status
   */
-RTC_Status_t RTC_GetDateTime(RTC_DateTime_t* datetime)
-{
-    if (datetime == NULL) {
-        return RTC_INVALID_PARAM;
-    }
+RTC_Status_t RTC_GetDateTime(RTC_DateTime_t* datetime) {
+if (datetime == NULL) {
+    return RTC_INVALID_PARAM;
+}
 
     /* byte buffer for register values */
     uint8_t regs[7];
@@ -334,8 +324,7 @@ RTC_Status_t RTC_GetDateTime(RTC_DateTime_t* datetime)
   * @param  alarm: pointer to alarm struct
   * @retval RTC status
   */
-RTC_Status_t RTC_SetAlarm(RTC_Alarm_t* alarm)
-{
+RTC_Status_t RTC_SetAlarm(RTC_Alarm_t* alarm) {
     if (alarm == NULL) {
         return RTC_INVALID_PARAM;
     }
@@ -363,8 +352,7 @@ RTC_Status_t RTC_SetAlarm(RTC_Alarm_t* alarm)
   * @param  alarm: pointer to alarm structure
   * @retval RTC status
   */
-RTC_Status_t RTC_GetAlarm(RTC_Alarm_t* alarm)
-{
+RTC_Status_t RTC_GetAlarm(RTC_Alarm_t* alarm) {
     if (alarm == NULL) {
         return RTC_INVALID_PARAM;
     }
@@ -400,8 +388,7 @@ RTC_Status_t RTC_GetAlarm(RTC_Alarm_t* alarm)
   * @param  enable: true to enable, false to disable
   * @retval RTC status
   */
-RTC_Status_t RTC_EnableAlarm(bool enable)
-{
+RTC_Status_t RTC_EnableAlarm(bool enable) {
     uint8_t ctrl_int;
     
     if (RTC_ReadRegister(RTC_REG_CONTROL_INT, &ctrl_int) != RTC_OK) {
@@ -424,8 +411,7 @@ RTC_Status_t RTC_EnableAlarm(bool enable)
   * @brief  Check if alarm was triggered
   * @retval true if alarm flag is set, false otherwise
   */
-bool RTC_IsAlarmTriggered(void)
-{
+bool RTC_IsAlarmTriggered(void) {
     uint8_t ctrl_int_flag;
     
     if (RTC_ReadRegister(RTC_REG_CONTROL_INT_FLAG, &ctrl_int_flag) == RTC_OK) {
@@ -443,8 +429,7 @@ bool RTC_IsAlarmTriggered(void)
   * @brief  Check if timer was triggered
   * @retval true if timer flag is set, false otherwise
   */
-bool RTC_IsTimerTriggered(void)
-{
+bool RTC_IsTimerTriggered(void) {
     uint8_t ctrl_int_flag;
     
     if (RTC_ReadRegister(RTC_REG_CONTROL_INT_FLAG, &ctrl_int_flag) == RTC_OK) {
@@ -462,8 +447,7 @@ bool RTC_IsTimerTriggered(void)
   * @brief  Clear alarm flag
   * @retval RTC status
   */
-RTC_Status_t RTC_ClearAlarmFlag(void)
-{
+RTC_Status_t RTC_ClearAlarmFlag(void) {
     uint8_t ctrl_int_flag;
     
     if (RTC_ReadRegister(RTC_REG_CONTROL_INT_FLAG, &ctrl_int_flag) != RTC_OK) {
@@ -479,8 +463,7 @@ RTC_Status_t RTC_ClearAlarmFlag(void)
   * @brief  Clear timer flag
   * @retval RTC status
   */
-RTC_Status_t RTC_ClearTimerFlag(void)
-{
+RTC_Status_t RTC_ClearTimerFlag(void) {
     uint8_t ctrl_int_flag;
     
     if (RTC_ReadRegister(RTC_REG_CONTROL_INT_FLAG, &ctrl_int_flag) != RTC_OK) {
@@ -496,8 +479,7 @@ RTC_Status_t RTC_ClearTimerFlag(void)
   * @brief  Clear all interrupt flags
   * @retval RTC status
   */
-RTC_Status_t RTC_ClearAllFlags(void)
-{
+RTC_Status_t RTC_ClearAllFlags(void) {
     /* Clear all interrupt flags */
     RTC_Status_t status = RTC_WriteRegister(RTC_REG_CONTROL_INT_FLAG, 0x00);
     
@@ -509,8 +491,7 @@ RTC_Status_t RTC_ClearAllFlags(void)
   * @param  enable: true to enable, false to disable
   * @retval RTC status
   */
-RTC_Status_t RTC_EnableClockOutput(bool enable)
-{
+RTC_Status_t RTC_EnableClockOutput(bool enable) {
     /* Control CLKOE pin (hardware enable) */
     if (enable) {
         HAL_GPIO_WritePin(RTC_CLKOE_PORT, RTC_CLKOE_PIN, GPIO_PIN_SET);
@@ -537,8 +518,7 @@ RTC_Status_t RTC_EnableClockOutput(bool enable)
   * @brief  Clear status flags
   * @retval RTC status
   */
-RTC_Status_t RTC_ClearFlags(void)
-{
+RTC_Status_t RTC_ClearFlags(void) {
     return RTC_ClearAllFlags();
 }
 
@@ -547,8 +527,7 @@ RTC_Status_t RTC_ClearFlags(void)
   * @param  alarm: pointer to extended alarm structure
   * @retval RTC status
   */
-RTC_Status_t RTC_SetExtendedAlarm(RTC_ExtendedAlarm_t* alarm)
-{
+RTC_Status_t RTC_SetExtendedAlarm(RTC_ExtendedAlarm_t* alarm) {
     if (alarm == NULL) {
         return RTC_INVALID_PARAM;
     }
@@ -592,8 +571,7 @@ RTC_Status_t RTC_SetExtendedAlarm(RTC_ExtendedAlarm_t* alarm)
   * @param  alarm: pointer to extended alarm structure
   * @retval RTC status
   */
-RTC_Status_t RTC_GetExtendedAlarm(RTC_ExtendedAlarm_t* alarm)
-{
+RTC_Status_t RTC_GetExtendedAlarm(RTC_ExtendedAlarm_t* alarm) {
     if (alarm == NULL) {
         return RTC_INVALID_PARAM;
     }
@@ -631,8 +609,7 @@ RTC_Status_t RTC_GetExtendedAlarm(RTC_ExtendedAlarm_t* alarm)
   * @param  timer: pointer to timer structure
   * @retval RTC status
   */
-RTC_Status_t RTC_SetTimer(RTC_Timer_t* timer)
-{
+RTC_Status_t RTC_SetTimer(RTC_Timer_t* timer) {
     if (timer == NULL) {
         return RTC_INVALID_PARAM;
     }
@@ -665,8 +642,7 @@ RTC_Status_t RTC_SetTimer(RTC_Timer_t* timer)
   * @param  timer: pointer to timer structure
   * @retval RTC status
   */
-RTC_Status_t RTC_GetTimer(RTC_Timer_t* timer)
-{
+RTC_Status_t RTC_GetTimer(RTC_Timer_t* timer) {
     if (timer == NULL) {
         return RTC_INVALID_PARAM;
     }
@@ -695,8 +671,7 @@ RTC_Status_t RTC_GetTimer(RTC_Timer_t* timer)
   * @param  enable: true to enable, false to disable
   * @retval RTC status
   */
-RTC_Status_t RTC_EnableTimer(bool enable)
-{
+RTC_Status_t RTC_EnableTimer(bool enable) {
     uint8_t ctrl1;
     
     if (RTC_ReadRegister(RTC_REG_CONTROL_1, &ctrl1) != RTC_OK) {
@@ -717,8 +692,7 @@ RTC_Status_t RTC_EnableTimer(bool enable)
   * @param  division: Timer division setting (RTC_TIMER_DIV_xxxx)
   * @retval RTC status
   */
-RTC_Status_t RTC_SetTimerDivision(uint8_t division)
-{
+RTC_Status_t RTC_SetTimerDivision(uint8_t division) {
     uint8_t ctrl1;
     
     /* Read current control register */
@@ -744,8 +718,7 @@ RTC_Status_t RTC_SetTimerDivision(uint8_t division)
   * @param  enable: true to enable, false to disable
   * @retval RTC status
   */
-RTC_Status_t RTC_EnableTimerInterrupt(bool enable)
-{
+RTC_Status_t RTC_EnableTimerInterrupt(bool enable) {
     uint8_t ctrl_int;
     
     if (RTC_ReadRegister(RTC_REG_CONTROL_INT, &ctrl_int) != RTC_OK) {
@@ -766,8 +739,7 @@ RTC_Status_t RTC_EnableTimerInterrupt(bool enable)
   * @param  temperature: pointer to store temperature (signed 8-bit, in Celsius)
   * @retval RTC status
   */
-RTC_Status_t RTC_GetTemperature(int8_t* temperature)
-{
+RTC_Status_t RTC_GetTemperature(int8_t* temperature) {
     if (temperature == NULL) {
         return RTC_INVALID_PARAM;
     }
@@ -789,8 +761,7 @@ RTC_Status_t RTC_GetTemperature(int8_t* temperature)
   * @param  data: data to write
   * @retval RTC status
   */
-RTC_Status_t RTC_WriteEEPROM(uint8_t address, uint8_t data)
-{
+RTC_Status_t RTC_WriteEEPROM(uint8_t address, uint8_t data) {
     /* Validate address */
     if (address < RTC_REG_EEPROM_USER1 || address > RTC_REG_XTAL_T0) {
         return RTC_INVALID_PARAM;
@@ -818,8 +789,7 @@ RTC_Status_t RTC_WriteEEPROM(uint8_t address, uint8_t data)
   * @param  data: pointer to store read data
   * @retval RTC status
   */
-RTC_Status_t RTC_ReadEEPROM(uint8_t address, uint8_t* data)
-{
+RTC_Status_t RTC_ReadEEPROM(uint8_t address, uint8_t* data) {
     /* Validate address */
     if (address < RTC_REG_EEPROM_USER1 || address > RTC_REG_XTAL_T0) {
         return RTC_INVALID_PARAM;
@@ -832,8 +802,7 @@ RTC_Status_t RTC_ReadEEPROM(uint8_t address, uint8_t* data)
   * @brief  Check if EEPROM is busy
   * @retval true if EEPROM is busy, false otherwise
   */
-bool RTC_IsEEPROMBusy(void)
-{
+bool RTC_IsEEPROMBusy(void) {
     uint8_t status;
     
     if (RTC_ReadRegister(RTC_REG_CONTROL_STATUS, &status) == RTC_OK) {
@@ -849,8 +818,7 @@ bool RTC_IsEEPROMBusy(void)
   * @param  data: data to write
   * @retval RTC status
   */
-RTC_Status_t RTC_WriteRAM(uint8_t address, uint8_t data)
-{
+RTC_Status_t RTC_WriteRAM(uint8_t address, uint8_t data) {
     /* Validate address */
     if (address < RTC_REG_RAM_START || address > RTC_REG_RAM_END) {
         return RTC_INVALID_PARAM;
@@ -865,8 +833,7 @@ RTC_Status_t RTC_WriteRAM(uint8_t address, uint8_t data)
   * @param  data: pointer to store read data
   * @retval RTC status
   */
-RTC_Status_t RTC_ReadRAM(uint8_t address, uint8_t* data)
-{
+RTC_Status_t RTC_ReadRAM(uint8_t address, uint8_t* data) {
     /* Validate address */
     if (address < RTC_REG_RAM_START || address > RTC_REG_RAM_END) {
         return RTC_INVALID_PARAM;
@@ -879,8 +846,7 @@ RTC_Status_t RTC_ReadRAM(uint8_t address, uint8_t* data)
   * @brief  Check if power-on occurred
   * @retval true if power-on flag is set, false otherwise
   */
-bool RTC_IsPowerOn(void)
-{
+bool RTC_IsPowerOn(void) {
     uint8_t status;
     
     if (RTC_ReadRegister(RTC_REG_CONTROL_STATUS, &status) == RTC_OK) {
@@ -894,8 +860,7 @@ bool RTC_IsPowerOn(void)
   * @brief  Check if voltage is low
   * @retval true if voltage flags are set, false otherwise
   */
-bool RTC_IsVoltageLow(void)
-{
+bool RTC_IsVoltageLow(void) {
     uint8_t status;
     
     if (RTC_ReadRegister(RTC_REG_CONTROL_STATUS, &status) == RTC_OK) {
@@ -914,8 +879,7 @@ bool RTC_IsVoltageLow(void)
   * @param  bcd: BCD value
   * @retval Binary value
   */
-uint8_t RTC_BCD2Bin(uint8_t bcd)
-{
+uint8_t RTC_BCD2Bin(uint8_t bcd) {
     /**
      * BCD format: 1111 1111
      * Upper nibble: tens (0-9)
@@ -936,8 +900,7 @@ uint8_t RTC_BCD2Bin(uint8_t bcd)
   * @retval BCD value in format: upper nibble = tens, lower nibble = ones
   * @note   Example: 25 decimal -> 0x25 BCD (0010 0101)
   */
-uint8_t RTC_Bin2BCD(uint8_t bin)
-{
+uint8_t RTC_Bin2BCD(uint8_t bin) {
     uint8_t tens_place = bin / 10; /* Extract the tens place digit (0-9) */
     uint8_t ones_place = bin % 10;  /* Extract the ones place digit (0-9) */
 
@@ -950,8 +913,7 @@ uint8_t RTC_Bin2BCD(uint8_t bin)
   * @param  year: year to check (full year, e.g., 2024)
   * @retval true if leap year, false otherwise
   */
-bool RTC_IsLeapYear(uint16_t year)
-{
+bool RTC_IsLeapYear(uint16_t year) {
     return ((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0);
 }
 
@@ -961,8 +923,7 @@ bool RTC_IsLeapYear(uint16_t year)
   * @param  year: year (full year)
   * @retval Number of days in month
   */
-uint8_t RTC_GetDaysInMonth(uint8_t month, uint16_t year)
-{
+uint8_t RTC_GetDaysInMonth(uint8_t month, uint16_t year) {
     const uint8_t days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
     
     if (month < 1 || month > 12) {

@@ -269,7 +269,8 @@ void SystemClock_Config(void)
   * @param seconds: Number of seconds to snooze
   * @retval None
   */
-void snooze (uint16_t seconds) {
+void snooze (uint16_t seconds) 
+{
   /* Check if the recorder is running */
   if (recorder_is_recording()) {
     shell_printf("[SNOOZE] ERROR: Cannot enter snooze while recording is active!\r\n");
@@ -301,12 +302,12 @@ void snooze (uint16_t seconds) {
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET); // USART3
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // USART2
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET); // UART5
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET); /* UART5 second control */
   /* UART4 RS232 Transceiver is Always-On */
 
-  /* Configure RTC Wakeup Timer using HAL */
+  /* Configure on-chip RTC Wakeup Timer using HAL */
   /* Use RTC wakeup timer with RTCCLK/16 = LSE/16 = 32768/16 = 2048 Hz */
   /* For N seconds wakeup, counter = (N * 2048) - 1 */
-  /* LSE provides precise 32.768 kHz crystal accuracy */
 
   uint32_t wakeup_counter = (seconds * 2048) - 1;
 
@@ -330,7 +331,8 @@ void snooze (uint16_t seconds) {
   * @param None
   * @retval None
   */
-void wakeup (void) {
+void wakeup (void) 
+{
   /* After waking from Stop Mode 2, system clock is MSI (4 MHz default) */
   /* Need to reconfigure system clock to PLL */
   SystemClock_Config();
@@ -343,6 +345,11 @@ void wakeup (void) {
 
   /* Re-enable the TIM3 counter for PPS synchronization */
   LL_TIM_EnableCounter(TIM3);
+
+  /* Reset the system time from the RTC */
+  RTC_DateTime_t wakeup_dt;
+  RTC_GetDateTime(&wakeup_dt);
+  systime_init(&wakeup_dt);
 
   /* Turn on SD Card Power and wait for stabilization */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_SET);
@@ -402,7 +409,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   *  @note   Reads the current date/time from the RTC and initializes systime module.
   *         Prints the initialized system time to the shell.
   */
-void systime_startup(void) {
+void systime_startup(void) 
+{
   /* Initialize RTC */
   RTC_Init();
 
@@ -427,7 +435,8 @@ void systime_startup(void) {
   *  @retval None
   *  @note  Reads GPS week and time-of-week from VectorNav and updates system time
   */
-void gps_time_sync(void) {
+void gps_time_sync(void) 
+{
   /* Get current GPS date/time from VectorNav (derived from GNSS week + TOW) */
   RTC_DateTime_t gps_dt = {0};
   const uint8_t MAX_TIME_ATTEMPTS = 10;
