@@ -1,10 +1,9 @@
 /**
   ******************************************************************************
   * @file    calculations.c
-  * @brief   Statistics calculations module - incremental implementation
-  * @note    Uses running sums updated per-sample for O(1) memory usage.
-  *          Finalization is non-blocking (~20 arithmetic ops, no iteration).
-  *          Computes wind statistics from WindMaster records at 20Hz.
+  * @brief   Report calculations module
+  * @note    Uses running sums updated per-sample. Non-blocking finalization.
+  * 
   ******************************************************************************
   */
 
@@ -19,10 +18,10 @@
 #define DEG_TO_RAD 0.01745329252f   /* M_PI / 180 */
 #define RAD_TO_DEG 57.29577951f     /* 180 / M_PI */
 
-/* Lever arm: IMU to anemometer offset vector R [m] in platform frame */
+/* Lever arm: IMU to WM offset vector R [m] in platform frame */
 #define LEVER_ARM_X  0.0f           /* X offset (lateral) */
 #define LEVER_ARM_Y  0.0f           /* Y offset (forward/aft) */
-#define LEVER_ARM_Z  0.8f           /* Z offset (IMU 0.8m below anemometer) */
+#define LEVER_ARM_Z  0.8f           /* Z offset (IMU 0.8m below WM) */
 
 /* Private types -------------------------------------------------------------*/
 
@@ -33,9 +32,9 @@
 typedef struct {
     uint16_t n;                 /* Sample count */
 
-    /* Wind direction accumulators (circular) */
-    float wind_dir_sin_sum;
-    float wind_dir_cos_sum;
+    /* Wind FROM direction accumulators (circular) */
+    float wind_from_sin_sum;
+    float wind_from_cos_sum;
 
     /* Wind speed accumulators */
     float wind_speed_sum;
@@ -72,12 +71,12 @@ typedef struct {
  * @brief Finalization state machine
  */
 typedef enum {
-    CALC_STATE_COLLECTING,      /* Accumulating samples */
-    CALC_STATE_READY,           /* Period complete, ready to finalize */
-    CALC_STATE_FINALIZE_LINEAR, /* Finalizing linear statistics */
-    CALC_STATE_FINALIZE_CIRC,   /* Finalizing circular statistics */
-    CALC_STATE_FINALIZE_GUST,   /* Finalizing gust statistics */
-    CALC_STATE_DONE             /* Results ready */
+    CALC_STATE_COLLECTING,          /* Accumulating samples */
+    CALC_STATE_READY,               /* Period complete, ready to finalize */
+    CALC_STATE_FINALIZE_SPEED,      /* Finalizing speed statistics */
+    CALC_STATE_FINALIZE_DIRECTION,  /* Finalizing direction statistics */
+    CALC_STATE_FINALIZE_GUST,       /* Finalizing gust statistics */
+    CALC_STATE_DONE                 /* Results ready */
 } CalcState_t;
 
 /* Private variables ---------------------------------------------------------*/
@@ -103,8 +102,8 @@ static uint16_t report_head = 0;        /* Index of next write position */
 /* Private function prototypes -----------------------------------------------*/
 static void store_report(void);
 static void reset_accumulators(CalcAccum_t *a);
-static void finalize_linear(void);
-static void finalize_circular(void);
+static void finalize_speed(void);
+static void finalize_direction(void);
 static void finalize_gust(void);
 static void platform_to_earth(float u_p, float v_p, float w_p,
                               float roll, float pitch, float yaw,
@@ -161,11 +160,12 @@ void calc_add_sample(const CalcSample_t *sample) {
 
     /* Compute derived values from Earth-frame wind */
     float wind_speed = sqrtf(u_m * u_m + v_m * v_m);
-    float wind_dir_rad = atan2f(u_m, v_m);
+    /* Wind FROM direction: negate components to get source direction */
+    float wind_from_rad = atan2f(-u_m, -v_m);
 
-    /* Update Wind direction accumulators (circular) */
-    accum_active.wind_dir_sin_sum += sinf(wind_dir_rad);
-    accum_active.wind_dir_cos_sum += cosf(wind_dir_rad);
+    /* Update Wind FROM direction accumulators (circular) */
+    accum_active.wind_from_sin_sum += sinf(wind_from_rad);
+    accum_active.wind_from_cos_sum += cosf(wind_from_rad);
     /* Update Wind speed accumulators */
     accum_active.wind_speed_sum += wind_speed;
     accum_active.wind_speed_sum_sq += wind_speed * wind_speed;
@@ -228,22 +228,22 @@ void calc_add_sample(const CalcSample_t *sample) {
 
 /**
  * @brief  Service function to finalize ready calculations
- * @note   State machine allows yielding between stages
- *         Non-blocking: Lets the main loop run between stages
+ * @note   State machine allows yields between stages
+ * 
  */
 void calc_service(void) {
     switch (state) {
         case CALC_STATE_READY:
-            state = CALC_STATE_FINALIZE_LINEAR;
+            state = CALC_STATE_FINALIZE_SPEED;
             /* fallthrough */
 
-        case CALC_STATE_FINALIZE_LINEAR:
-            finalize_linear();
-            state = CALC_STATE_FINALIZE_CIRC;
+        case CALC_STATE_FINALIZE_SPEED:
+            finalize_speed();
+            state = CALC_STATE_FINALIZE_DIRECTION;
             break;
 
-        case CALC_STATE_FINALIZE_CIRC:
-            finalize_circular();
+        case CALC_STATE_FINALIZE_DIRECTION:
+            finalize_direction();
             state = CALC_STATE_FINALIZE_GUST;
             break;
 
@@ -305,10 +305,10 @@ static void reset_accumulators(CalcAccum_t *a) {
 }
 
 /**
- * @brief  Finalize linear statistics (wind speed, U, V, W)
+ * @brief  Finalize speed statistics (wind speed, U, V, W)
  * @note   Computes mean and stddev from running sums
  */
-static void finalize_linear(void) {
+static void finalize_speed(void) {
     const float n = (float)accum_ready.n;
     if (n < 1.0f) return;
 
@@ -350,27 +350,27 @@ static void finalize_linear(void) {
 }
 
 /**
- * @brief  Finalize circular statistics (wind direction)
+ * @brief  Finalize direction statistics (wind FROM direction)
  * @note   Uses resultant length method for circular stddev
  */
-static void finalize_circular(void) {
+static void finalize_direction(void) {
     const float n = (float)accum_ready.n;
     if (n < 1.0f) return;
 
-    /* Wind direction (FROM) */
-    float wind_direction_mean_rad = atan2f(accum_ready.wind_dir_sin_sum / n, accum_ready.wind_dir_cos_sum / n);
-    results.wind_direction_mean = wind_direction_mean_rad * RAD_TO_DEG;
-    if (results.wind_direction_mean < 0) results.wind_direction_mean += 360.0f;
+    /* Wind FROM direction */
+    float wind_from_mean_rad = atan2f(accum_ready.wind_from_sin_sum / n, accum_ready.wind_from_cos_sum / n);
+    results.wind_from_mean = wind_from_mean_rad * RAD_TO_DEG;
+    if (results.wind_from_mean < 0) results.wind_from_mean += 360.0f;
 
-    /* Wind direction circular stddev */
-    float wind_direction_R = sqrtf(accum_ready.wind_dir_sin_sum * accum_ready.wind_dir_sin_sum +
-                                   accum_ready.wind_dir_cos_sum * accum_ready.wind_dir_cos_sum) / n;
-    if (wind_direction_R > 0.001f && wind_direction_R < 1.0f) {
-        results.wind_direction_stddev = sqrtf(-2.0f * logf(wind_direction_R)) * RAD_TO_DEG;
-    } else if (wind_direction_R >= 1.0f) {
-        results.wind_direction_stddev = 0;
+    /* Wind FROM direction stddev */
+    float wind_from_R = sqrtf(accum_ready.wind_from_sin_sum * accum_ready.wind_from_sin_sum +
+                              accum_ready.wind_from_cos_sum * accum_ready.wind_from_cos_sum) / n;
+    if (wind_from_R > 0.001f && wind_from_R < 1.0f) {
+        results.wind_from_stddev = sqrtf(-2.0f * logf(wind_from_R)) * RAD_TO_DEG;
+    } else if (wind_from_R >= 1.0f) {
+        results.wind_from_stddev = 0;
     } else {
-        results.wind_direction_stddev = 180.0f;
+        results.wind_from_stddev = 180.0f;
     }
 }
 
@@ -413,8 +413,8 @@ static void store_report(void) {
     report->w_std = results.w_stddev;
     report->wind_speed_mean = results.wind_speed_mean;
     report->wind_speed_std = results.wind_speed_stddev;
-    report->wind_dir_mean = results.wind_direction_mean;
-    report->wind_dir_std = results.wind_direction_stddev;
+    report->wind_from_mean = results.wind_from_mean;
+    report->wind_from_std = results.wind_from_stddev;
     report->gust_mean = results.gust_mean;
     report->gust_std = results.gust_stddev;
 

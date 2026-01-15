@@ -1,10 +1,9 @@
 /**
   ******************************************************************************
   * @file    calculations.h
-  * @brief   Statistics calculations module header
-  * @note    Incremental 1-minute statistics for wind data.
-  *          Uses running sums for O(1) memory and non-blocking finalization.
-  *          Computes mean, stddev, direction, and gust values.
+  * @brief   Report calculations module
+  * @note    Uses running sums updated per-sample. Non-blocking finalization.
+  * 
   ******************************************************************************
   */
 #ifndef __CALCULATIONS_H__
@@ -50,9 +49,9 @@ typedef struct {
  * @note  Updated every 60 seconds when accumulation period completes
  */
 typedef struct {
-    /* Wind direction (FROM) - degrees (0-360) */
-    float wind_direction_mean;
-    float wind_direction_stddev;
+    /* Wind FROM direction - degrees (0-360, 0=from North) */
+    float wind_from_mean;
+    float wind_from_stddev;
 
     /* Wind speed (horizontal magnitude) - m/s */
     float wind_speed_mean;
@@ -96,8 +95,8 @@ typedef struct {
     float w_std;                /* W (Up) wind component stddev (m/s) */
     float wind_speed_mean;      /* Horizontal wind speed mean (m/s) */
     float wind_speed_std;       /* Horizontal wind speed stddev (m/s) */
-    float wind_dir_mean;        /* Wind direction mean (degrees, 0-360) */
-    float wind_dir_std;         /* Wind direction stddev (degrees) */
+    float wind_from_mean;       /* Wind FROM direction mean (degrees, 0-360, 0=from North) */
+    float wind_from_std;        /* Wind FROM direction stddev (degrees) */
     float gust_mean;            /* Gust (max 3-sec mean) (m/s) */
     float gust_std;             /* Gust stddev (m/s) */
 } CalcReport_t;

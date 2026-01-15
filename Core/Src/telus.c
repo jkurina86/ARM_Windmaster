@@ -19,7 +19,7 @@
 #include <stdbool.h>
 
 /* Private defines -----------------------------------------------------------*/
-#define RX_BUFFER_SIZE      64      /* Circular DMA RX buffer size */
+#define RX_BUFFER_SIZE      64      /* DMA RX buffer size */
 #define TX_BUFFER_SIZE      6144    /* TX buffer for CSV response (~6KB for 30 reports) */
 #define COMMAND_LEN         7       /* Length of "idata\r\n" */
 
@@ -41,11 +41,12 @@ static const char COMMAND[] = "idata\r\n";
 
 /* CSV header row */
 static const char CSV_HEADER[] =
-    "timestamp,latitude,longitude,u_mean,u_std,v_mean,v_std,w_mean,w_std,wind_speed_mean,wind_speed_std,wind_dir_mean,wind_dir_std,gust_mean,gust_std\r\n";
+    "timestamp,latitude,longitude,u_mean,u_std,v_mean,v_std,w_mean,w_std,wind_speed_mean,wind_speed_std,wind_from_mean,wind_from_std,gust_mean,gust_std\r\n";
 
 /* Private function prototypes -----------------------------------------------*/
 static void configure_dma_rx(void);
 static void configure_dma_tx(void);
+static void restart_dma_rx(void);
 static bool check_for_command(void);
 static uint16_t build_csv_response(void);
 static void start_dma_tx(uint16_t length);
@@ -120,9 +121,9 @@ void telus_tx_complete(void) {
 /* Private functions ---------------------------------------------------------*/
 
 /**
- * @brief  Configure DMA2 Channel 5 for UART4 RX (circular mode)
- * @retval None
- * @note   Sets up DMA for continuous reception into a circular buffer.
+ * @brief  Configure DMA2 Channel 5 for UART4 RX
+ * @note   Sets up DMA for reception into a linear buffer.
+ *         Must be restarted after buffer fills or after processing.
  */
 static void configure_dma_rx(void) {
     /* Disable channel before configuration */
@@ -136,6 +137,30 @@ static void configure_dma_rx(void) {
 
     /* Set data length */
     LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_5, RX_BUFFER_SIZE);
+}
+
+/**
+ * @brief  Restart DMA RX after processing
+ * @note   Resets buffer position and restarts DMA transfer.
+ */
+static void restart_dma_rx(void) {
+    /* Disable channel */
+    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_5);
+
+    /* Clear buffer */
+    memset(rx_buffer, 0, RX_BUFFER_SIZE);
+    rx_read_pos = 0;
+
+    /* Reset data length */
+    LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_5, RX_BUFFER_SIZE);
+
+    /* Clear flags */
+    LL_DMA_ClearFlag_TC5(DMA2);
+    LL_DMA_ClearFlag_HT5(DMA2);
+    LL_DMA_ClearFlag_TE5(DMA2);
+
+    /* Re-enable channel */
+    LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_5);
 }
 
 /**
@@ -160,20 +185,24 @@ static void configure_dma_tx(void) {
 /**
  * @brief  Check RX buffer for "idata\r\n" command
  * @retval true if command found, false otherwise
- * @note   Scans the circular RX buffer for the command.
+ * @note   Scans the linear RX buffer for the command. Restarts DMA after
+ *         finding command or when buffer is nearly full.
  */
 static bool check_for_command(void) {
-    const uint16_t MASK = RX_BUFFER_SIZE - 1;
-
     /* Get current write position from DMA counter */
-    uint16_t wr = (RX_BUFFER_SIZE - LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_5)) & MASK;
+    uint16_t dma_remaining = LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_5);
+    uint16_t wr = RX_BUFFER_SIZE - dma_remaining;
     uint16_t rd = rx_read_pos;
 
-    /* Calculate available bytes (handles wraparound) */
-    uint16_t avail = (wr - rd) & MASK;
+    /* Calculate available bytes */
+    uint16_t avail = (wr > rd) ? (wr - rd) : 0;
 
     /* Need at least COMMAND_LEN bytes */
     if (avail < COMMAND_LEN) {
+        /* If DMA is complete (buffer full), restart it */
+        if (dma_remaining == 0) {
+            restart_dma_rx();
+        }
         return false;
     }
 
@@ -182,25 +211,31 @@ static bool check_for_command(void) {
         /* Check if current position matches command */
         bool match = true;
         for (uint16_t i = 0; i < COMMAND_LEN; i++) {
-            if (rx_buffer[(rd + i) & MASK] != COMMAND[i]) {
+            if (rx_buffer[rd + i] != COMMAND[i]) {
                 match = false;
                 break;
             }
         }
 
         if (match) {
-            /* Advance read pointer past command */
-            rx_read_pos = (rd + COMMAND_LEN) & MASK;
+            /* Found command - restart DMA for next command */
+            restart_dma_rx();
             return true;
         }
 
         /* Move to next byte */
-        rd = (rd + 1) & MASK;
+        rd++;
         avail--;
     }
 
     /* Update read position (consume non-matching bytes) */
     rx_read_pos = rd;
+
+    /* If buffer is getting full, restart DMA */
+    if (dma_remaining < COMMAND_LEN) {
+        restart_dma_rx();
+    }
+
     return false;
 }
 
@@ -254,8 +289,8 @@ static uint16_t build_csv_response(void) {
             report->w_std,
             report->wind_speed_mean,
             report->wind_speed_std,
-            report->wind_dir_mean,
-            report->wind_dir_std,
+            report->wind_from_mean,
+            report->wind_from_std,
             report->gust_mean,
             report->gust_std);
 
