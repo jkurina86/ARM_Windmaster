@@ -112,6 +112,7 @@ uint8_t calc_results_ready(void);
 CalcReport_t* calc_get_report_buffer(void);
 uint16_t calc_get_report_count(void);
 int16_t calc_get_report_head(void);
+void calc_clear_reports(void);
 
 #ifdef __cplusplus
 }

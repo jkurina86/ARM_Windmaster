@@ -55,7 +55,8 @@ const shell_command_t shell_commands[] = {
     {"version", "Show firmware version", cmd_version},
     {"hello", "Send hello message to UART (1-5)", cmd_hello},
     {"snooze", "Enter low-power sleep mode for specified seconds", cmd_snooze},
-    
+    {"systime", "Show current system time (epoch + ISO 8601)", cmd_systime},
+
     /* RTC Commands */
     {"rtc-settime", "Set RTC date/time (YYYY MM DD HH MM SS)", cmd_rtc_settime},
     {"rtc-time", "Get current RTC date/time", cmd_rtc_gettime},
@@ -356,6 +357,18 @@ void cmd_snooze(int argc, char **argv)
     /* Schedule snooze task */
     snooze_args_t args = { .seconds = seconds };
     tasker_enqueue(handle_snooze, &args, sizeof(args));
+}
+
+/**
+  * @brief Show current system time (epoch + ISO 8601)
+  * @param argc: Argument count
+  * @param argv: Arguments
+  * @retval None
+  */
+void cmd_systime(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    tasker_enqueue(handle_systime, NULL, 0);
 }
 
 /* RTC Commands -----------------------------------------------*/

@@ -65,7 +65,7 @@ void systime_init(const RTC_DateTime_t* initial_dt) {
   * @retval None
   * @note Time will be set on next PPS event
 */
-void systime_request_update(uint32_t new_epoch_sec) {
+void systime_update(uint32_t new_epoch_sec) {
     g_set_epoch_sec = new_epoch_sec;
     g_set_pending = true;
 }
@@ -130,16 +130,16 @@ uint64_t time_ms_now(void) {
 
 /** @brief Get formatted timestamp string for a given time in seconds
   * @param s Time in seconds since 2000-01-01 00:00:00
-  * @retval Formatted timestamp string in format "MM-DD-YYYY,HH:MM:SS"
+  * @retval Formatted timestamp string in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)
   * @note Returns static string buffer
 */
 const char* timestamp(uint32_t s) {
-    static char buffer[64];
+    static char buffer[32];
 
     RTC_DateTime_t dt = epoch_to_datetime(s);
 
-    snprintf(buffer, sizeof(buffer), "<%02d-%02d-%04d,%02d:%02d:%02d>",
-             dt.months, dt.days, dt.years + 2000,
+    snprintf(buffer, sizeof(buffer), "%04d-%02d-%02dT%02d:%02d:%02dZ",
+             dt.years + 2000, dt.months, dt.days,
              dt.hours, dt.minutes, dt.seconds);
 
     return buffer;

@@ -43,6 +43,7 @@
 #include "ab-rtcmc-rtc.h"
 #include "systime.h"
 #include "stm32l4xx_ll_dma.h"
+#include "telus.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -134,13 +135,6 @@ int main(void)
   /* Start the free-running 1 MHz timer */
   LL_TIM_EnableCounter(TIM2);
 
-  /* UART Configuration: UART4 not used, UART5 = WindMaster, USART3 = VectorNav */
-  /* Disable UART4 (not used) */
-  LL_USART_DisableIT_RXNE(UART4);
-  HAL_NVIC_DisableIRQ(UART4_IRQn);
-
-  /* UART5 is used for WindMaster - do NOT disable */
-  /* USART3 is used for VectorNav - already enabled */
 
   /* Start the 20 Hz timer and interrupt */
   /*
@@ -160,6 +154,7 @@ int main(void)
   init_uart_interrupts();
   wm_init();
   vn_init();
+  telus_init();
 
   /* Allow time for SD card power and UART lines to stabilize and clear any flags */
   HAL_Delay(100);
@@ -185,15 +180,15 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    
-    /* Kick the Dog (10 second timeout until system reset) */
-    //HAL_IWDG_Refresh(&hiwdg);
 
     /* Process recorder queues and write to SD, returns fast if not recording */
     recorder_service();
 
     /* Process calculation buffers, returns fast if no buffer ready */
     calc_service();
+
+    /* Process Telus commands */
+    telus_service();
 
     /* Shell parsing, processing, and task scheduling */
     shell_task();
@@ -409,10 +404,13 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   *  @note   Reads the current date/time from the RTC and initializes systime module.
   *         Prints the initialized system time to the shell.
   */
-void systime_startup(void) 
+void systime_startup(void)
 {
   /* Initialize RTC */
-  RTC_Init();
+  RTC_Status_t rtc_status = RTC_Init();
+  if (rtc_status != RTC_OK) {
+    shell_printf("RTC_Init failed with status: %d\r\n", rtc_status);
+  }
 
   /* Get the current date/time from the RTC */
   RTC_DateTime_t initial_dt;

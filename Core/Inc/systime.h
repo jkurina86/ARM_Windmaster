@@ -17,7 +17,7 @@
 /* Function Prototypes -------------------------------------------------------*/
 uint32_t datetime_to_epoch(const RTC_DateTime_t* dt);
 void systime_init(const RTC_DateTime_t* dt);
-void systime_request_update(uint32_t new_epoch_sec);
+void systime_update(uint32_t new_epoch_sec);
 void systime_pps_event(void);
 uint32_t time_s_now(void);
 uint64_t time_ms_now(void);

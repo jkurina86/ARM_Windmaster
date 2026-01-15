@@ -41,6 +41,7 @@ void handle_help(const void *arg);
 void handle_clear(const void *arg);
 void handle_status(const void *arg);
 void handle_snooze(const void *arg);
+void handle_systime(const void *arg);
 
 #ifdef __cplusplus
 }

@@ -212,6 +212,9 @@ void calc_add_sample(const CalcSample_t *sample) {
 
     /* Check if period is complete */
     if (accum_active.n >= CALC_PERIOD_SAMPLES) {
+        /* Capture timestamp at end of period */
+        results.timestamp_s = time_s_now();
+
         /* Copy active to ready buffer for finalization */
         memcpy(&accum_ready, &accum_active, sizeof(CalcAccum_t));
 
@@ -248,8 +251,6 @@ void calc_service(void) {
             finalize_gust();
 
             /* Finalization complete - set metadata */
-            uint16_t dummy_ms;
-            systime_snapshot(&results.timestamp_s, &dummy_ms);
             results.sample_count = accum_ready.n;
             results.valid = 1;
             new_results_flag = 1;
@@ -459,6 +460,15 @@ int16_t calc_get_report_head(void) {
     } else {
         return report_head - 1;
     }
+}
+
+/**
+ * @brief  Clear all reports from buffer
+ * @note   Called after CSV transmission to Telus system
+ */
+void calc_clear_reports(void) {
+    report_count = 0;
+    report_head = 0;
 }
 
 /**

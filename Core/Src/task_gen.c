@@ -12,6 +12,7 @@
 #include "usart.h"
 #include "main.h"
 #include "rtc.h"
+#include "systime.h"
 #include "stm32l4xx_ll_usart.h"
 #include <string.h>
 
@@ -213,5 +214,24 @@ void handle_snooze(const void *arg)
     wakeup();
     
     shell_print("Woke up from snooze mode.\r\n");
+    shell_print(SHELL_PROMPT);
+}
+
+/**
+ * @brief Handle systime task - display current system time
+ * @param arg Unused (pass NULL)
+ */
+void handle_systime(const void *arg)
+{
+    (void)arg;
+
+    uint32_t epoch_sec = time_s_now();
+
+    shell_print("System Time:\r\n");
+    shell_print("============\r\n");
+    shell_printf("Epoch: %lu seconds since 2000-01-01\r\n", epoch_sec);
+    shell_printf("ISO 8601: %s\r\n", timestamp(epoch_sec));
+    shell_printf("PPS count: %lu\r\n", systime_get_pps_count());
+    shell_printf("PPS lock: %s\r\n", systime_have_lock() ? "YES" : "NO");
     shell_print(SHELL_PROMPT);
 }

@@ -287,7 +287,7 @@ void handle_rtc_settime(const void *arg)
     
     /* Update system time as well */
     if (status == RTC_OK) {
-        systime_request_update(datetime_to_epoch(&datetime));
+        systime_update(datetime_to_epoch(&datetime));
     }
 
     if (status == RTC_OK) {

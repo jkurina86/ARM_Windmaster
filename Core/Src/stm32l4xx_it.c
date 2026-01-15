@@ -29,6 +29,7 @@
 #include "systime.h"
 #include "windmaster.h"
 #include "vectornav.h"
+#include "telus.h"
 
 /* USER CODE END Includes */
 
@@ -412,14 +413,6 @@ void TIM4_IRQHandler(void)
   /* 20 Hz Timer */
   /* USER CODE END TIM4_IRQn 0 */
   /* USER CODE BEGIN TIM4_IRQn 1 */
-  /*
-  if (LL_TIM_IsActiveFlag_UPDATE(TIM4)) {
-      LL_TIM_ClearFlag_UPDATE(TIM4);
-      tick20_flag = 1;  // Set the 20 Hz tick flag
-  }
-  */
-  /* USER CODE END TIM4_IRQn 0 */
-  /* USER CODE BEGIN TIM4_IRQn 1 */
 
   /* USER CODE END TIM4_IRQn 1 */
 }
@@ -592,6 +585,12 @@ void DMA2_Channel2_IRQHandler(void)
 void DMA2_Channel3_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Channel3_IRQn 0 */
+
+  /* Handle UART4 TX DMA transfer complete */
+  if (LL_DMA_IsActiveFlag_TC3(DMA2)) {
+    LL_DMA_ClearFlag_TC3(DMA2);
+    telus_tx_complete();
+  }
 
   /* USER CODE END DMA2_Channel3_IRQn 0 */
   /* USER CODE BEGIN DMA2_Channel3_IRQn 1 */
