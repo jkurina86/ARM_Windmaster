@@ -256,8 +256,13 @@ RTC_Status_t RTC_SetDateTime(RTC_DateTime_t* datetime) {
     /* Sets the status to zero, use OR-Equals for the operations to accumulate any errors */
     RTC_Status_t status = RTC_OK;
 
-    /* Enable write operations first */
-    uint8_t ctrl1 = RTC_CTRL1_WE;
+    /* Enable write operations while preserving CLK_INT bit (for clock output) */
+    uint8_t ctrl1;
+    status = RTC_ReadRegister(RTC_REG_CONTROL_1, &ctrl1);
+    if (status != RTC_OK) {
+        return status;
+    }
+    ctrl1 |= RTC_CTRL1_WE;  /* Set WE bit, preserve other bits including CLK_INT */
 
     status = RTC_WriteRegister(RTC_REG_CONTROL_1, ctrl1);
 
@@ -613,27 +618,36 @@ RTC_Status_t RTC_SetTimer(RTC_Timer_t* timer) {
     if (timer == NULL) {
         return RTC_INVALID_PARAM;
     }
-    
+
     RTC_Status_t status = RTC_OK;
 
     /* Set timer value (16-bit split into low and high bytes) */
     status |= RTC_WriteRegister(RTC_REG_TIMER_LOW, timer->timer_value & 0xFF);
     status |= RTC_WriteRegister(RTC_REG_TIMER_HIGH, (timer->timer_value >> 8) & 0xFF);
 
-    /* Configure control register with timer settings */
-    uint8_t ctrl1 = RTC_CTRL1_WE;  /* Always enable write */
+    /* Read current control register to preserve CLK_INT bit */
+    uint8_t ctrl1;
+    status = RTC_ReadRegister(RTC_REG_CONTROL_1, &ctrl1);
+    if (status != RTC_OK) {
+        return status;
+    }
+
+    /* Clear timer-related bits, preserve CLK_INT */
+    ctrl1 &= ~(RTC_CTRL1_TE | RTC_CTRL1_TAR | 0x60);  /* Clear TE, TAR, TD1, TD0 */
+    ctrl1 |= RTC_CTRL1_WE;  /* Always enable write */
+
     if (timer->enabled) {
         ctrl1 |= RTC_CTRL1_TE;
     }
     if (timer->auto_reload) {
         ctrl1 |= RTC_CTRL1_TAR;
     }
-    
+
     /* Set timer division */
     ctrl1 |= (timer->division & 0x60);  /* grab TD1 and TD0 bits with mask: 0110 0000 */
 
     status |= RTC_WriteRegister(RTC_REG_CONTROL_1, ctrl1);
-    
+
     return status;
 }
 

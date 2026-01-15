@@ -410,6 +410,9 @@ void systime_startup(void)
   RTC_Status_t rtc_status = RTC_Init();
   if (rtc_status != RTC_OK) {
     shell_printf("RTC_Init failed with status: %d\r\n", rtc_status);
+    shell_printf("  (0=OK, 1=ERROR, 2=TIMEOUT, 3=INVALID_PARAM, 4=EEPROM_BUSY)\r\n");
+  } else {
+    shell_printf("RTC_Init OK, CLKOUT enabled @ 1Hz\r\n");
   }
 
   /* Get the current date/time from the RTC */
@@ -426,6 +429,15 @@ void systime_startup(void)
   shell_printf("System time initialized to: %02d-%02d-20%02d %02d:%02d:%02d\r\n",
               current_dt.months, current_dt.days, current_dt.years,
               current_dt.hours, current_dt.minutes, current_dt.seconds);
+
+  /* Wait and check PPS */
+  shell_printf("Checking PPS (waiting 3 seconds)...\r\n");
+  HAL_Delay(3000);
+  uint64_t pps_count = systime_get_pps_count();
+  shell_printf("PPS count: %u\r\n", (uint32_t)pps_count);
+  if (pps_count == 0) {
+    shell_printf("WARNING: No PPS detected! Check RTC CLKOUT and TIM3.\r\n");
+  }
 }
 
 /** @brief Synchronize RTC and system time with GPS time from VectorNav
