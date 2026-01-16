@@ -1,0 +1,16 @@
+CompileFlags:
+  CompilationDatabase: build/Debug
+  Add:
+    - -Wno-unknown-warning-option
+  Remove:
+    - -mcpu=*
+    - -mfpu=*
+    - -mfloat-abi=*
+    - -mthumb
+    - --specs=*
+
+Diagnostics:
+  UnusedIncludes: None
+  Suppress:
+    - drv_unknown_argument
+    - unknown_argument

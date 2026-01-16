@@ -1,0 +1,703 @@
+WindMaster Message Formats
+On applying power to the WindMaster, it will automatically operate in the Measurement Mode and provide wind measurements in one of the following formats:
+Mode 1 – ASCII, UVW, Continuous
+Mode 2 – ASCII, Polar, Continuous (default format)
+Mode 3 – ASCII, UVW, Polled
+Mode 4 – ASCII, Polar, Polled
+Mode 7 – Binary, Polar, Short
+Mode 8 – Binary, UVW, Short
+Mode 9 – Binary, Polar, Long
+Mode 10 – Binary UVW, Long
+
+Mode 1 – ASCII, UVW Continuous
+(a) Mode 1, Normal Resolution (J1).
+ASCII, UVW, Continuous, Speed of Sound On, Sonic Temp On, [Analogue inputs on], PRT On
+In this mode, the wind speed outputs are given as signed (i.e. positive or negative) speeds along the
+U axis, V axis and the W (vertical) axis.
+
+Format for software configuring is:
+
+<STX><ID>,±UUU.UU,±VVV.VV,±WWW.WW,U,±CCC.CC,±TTT.TT, SS,[±1.1111,±2.2222,±3.3333,±4.4444],±PP.PPC,<ETX>CC<CR><LF>
+
+Where:
+1 <STX> - Start of string character (ASCII value 2)
+2 <ID> - Anemometer Identification (A-Z)
+3 ±UUU.UU - ‘U’ axis velocity 0.01ms-1 units
+4 ±VVV.VV - ‘V’ axis velocity 0.01ms-1 units
+5 ±WWW.WW - ‘W’ axis velocity 0.01ms-1 units
+6 U - Units (M=m/s, N=knots, P=mph, K=kph)
+7 ±CCC.CC - Speed of Sound in 0.01ms-1 units
+8 ±TTT.TT - Sonic Temperature in Degrees C.
+9 SS - Status data (Codes 00 to 0B)
+10 ±1.1111 - Analogue input 1 in volts
+11 ±2.2222 - Analogue input 2 in volts
+12 ±3.3333 - Analogue input 3 in volts
+13 ±4.4444 - Analogue input 4 in volts
+14 ±PP.PPC - PRT temperature in degrees C, e.g. +23.13deg C output as +23.13C in the string.
+15 <ETX> - End of string character (ASCII value 3)
+16 CC - Checksum of all Characters between <STX> and <ETX> (HEX byte)
+17 <CR><LF> - Carriage Return and Line Feed
+
+
+<STX>: Start of string character (ASCII value 2).
+WindMaster Identification node address: The default setting is ‘Q’.
+Horizontal wind speed: Shows the wind speed in the U / V Plane.
+Vertical wind speed: Shows the magnitude of wind speed in the W axis.
+Units: The Units identifier shows the units in which the wind speeds are measured.
+
+Units - Identifier
+Metres per second (default) - M
+Knots - N
+Miles per hour - P
+Kilometres per hour - K
+Feet per minute - F
+
+Speed of Sound (SOS): If enabled, this is displayed in metres per second.
+Sonic temperature: If enabled, this is displayed in degrees C (please note that this is not corrected for humidity).
+Status: This indicates either correct operation - Code 00 - or status code. Appendix F for explanation of codes.
+Analogue Inputs (Unit order option): If enabled, the four Analogue inputs are an order option (see Para 6.1).
+PRT (Unit order option): If enabled, the Platinum Resistance Thermometer input is an order option (see Para 6.2).
+Checksum: This enables the host system to check that the data has been correctly received. This is the EXCLUSIVE – OR of the bytes between (and not including) the <STX> and <ETX> characters reported as ASCII Hex.
+<ETX>: End of string character (ASCII value 3).
+
+Output rate (not displayed): The WindMaster delivers wind information at rates from 1 (default setting) to 32 outputs / second. 
+[The sample rate (20 or 32 Hz) is chosen automatically to be an appropriate multiple of the output rate.]
+Data can be instantaneous or averaged (see section Appendix D).
+
+Use at least 38400 baud if high output rates 20/32Hz are used with all parameter outputs on.
+
+(b) Mode 1 (High Resolution (J2))
+ASCII, UVW, Continuous, Speed of Sound On, Sonic Temp On, [Analogue inputs on], PRT On
+
+<STX><ID>,±UUU.UUU,±VVV.VVV,±WWW.WWW,U,±CCC.CC,±TTT.TT, SS,[±1.1111,±2.2222,±3.3333,±4.4444],±PP.PPC,<ETX>CC<CR><LF>
+
+Where:
+<STX> - Start of string character (ASCII value 2)
+<ID> - Anemometer Identification (A-Z)
+±UUU.UUU - ‘U’ axis velocity 0.001ms-1 units
+±VVV.VVV - ‘V’ axis velocity 0.001ms-1 units
+±WWW.WWW ‘W’ axis velocity 0.001ms-1 units
+U - Units (M=m/s)
+±CCC.CC - Speed of Sound in 0.01ms-1 units
+±TTT.TT - Sonic Temperature in Degrees C.
+SS - Status data (Codes 00 to 0B)
+±1.1111 - Analogue input 1 in volts
+±2.2222 - Analogue input 2 in volts
+±3.3333 - Analogue input 3 in volts
+±4.4444 - Analogue input 4 in volts
+±PP.PPC - PRT temperature in degrees C, e.g., +23.13deg C output as +23.13C in the string.
+<ETX> - End of string character (ASCII value 3)
+CC - Checksum of all Characters between
+<CR><LF> - Carriage Return and Line Feed
+
+Mode 2 – ASCII, Polar, Continuous
+(a) Mode 2 (Normal Resolution Shown J1)
+ASCII, Polar+W, Continuous, Speed of Sound On, Sonic Temp On, [Analogue inputs on], PRT On
+
+Format for software configuring is:
+<STX><ID>,DDD,MMM.MM,±WWW.WW,U,±CCC.CC,±TTT.TT,SS,[±1.1111,±2.2222,±3.3333,±4.4444], ±PP.PPC,<ETX>CC<CR><LF>
+Where:
+<STX> - Start of string character (ASCII value 2)
+<ID> - Anemometer Identification (A-Z)
+DDD - Direction in degrees
+MMM.MM - Wind Magnitude
+±WWW.WW - ‘W’ axis velocity 0.01ms-1 units
+U - Units (M=m/s, N=knots, P=mph, K=kph)
+±CCC.CC - Speed of Sound in 0.01ms-1 units
+±TTT.TT - Sonic Temperature in Degrees C.
+SS - Status data (Codes 00 to 0B)
+±1.1111 - Analogue input 1 in volts
+±2.2222 - Analogue input 2 in volts
+±3.3333 - Analogue input 3 in volts
+±4.4444 - Analogue input 4 in volts
+±PP.PPC - PRT temperature in degrees C, e.g., +23.13deg C output as +23.13C in the string.
+<ETX> - End of string character (ASCII value 3)
+CC - Checksum of all Characters between <STX> and <ETX> (HEX byte)
+<CR><LF> - Carriage Return and Line Feed
+
+Horizontal wind direction
+Indicated in degrees, from 0 to 359°, with respect to the WindMaster North marker.
+In fixed field mode and when the wind speed is below 0.05 metres/sec, the direction will not be calculated, but the last calculated direction above 0.05 m/s will be output 
+(the threshold of 0.05 m/s is the default setting; it is user-configurable).
+
+(b) Mode 2 (High Resolution Shown J2)
+ASCII, Polar+W, Continuous, Speed of Sound On, Sonic Temp On, [Analogue inputs on], PRT On
+
+Format for software configuring is:
+<STX><ID>,DDD.D,MMM.MMM,±WWW.WWW,U,±CCC.CC,±TTT.TT,SS,[±1.1111,±2.2222,±3.3333,±4.4444],±PP.PPC,<ETX>CC<CR><LF>
+Where:
+<STX> - Start of string character (ASCII value 2)
+<ID> - Anemometer Identification (A-Z)
+DDD.D - Direction in degrees
+MMM.MMM - Wind Magnitude
+±WWW.WWW- ‘W’ axis velocity 0.001ms-1 units
+U - Units (M=m/s)
+±CCC.CC - Speed of Sound in 0.01ms-1 units
+±TTT.TT - Sonic Temperature in Degrees C.
+SS - Status data (Codes 00 to 0B)
+±1.1111 - Analogue input 1 in volts
+±2.2222 - Analogue input 2 in volts
+±3.3333 - Analogue input 3 in volts
+±4.4444 - Analogue input 4 in volts
+±PP.PPC - PRT temperature in degrees C, e.g., +23.13deg C output as +23.13C in the string.
+<ETX> - End of string character (ASCII value 3)
+CC - Checksum of all Characters between <STX> and <ETX> (HEX byte)
+<CR><LF> - Carriage Return and Line Feed
+
+Mode 3 – ASCII, UVW, Polled
+Mode 3 (Normal Resolution Shown)
+ASCII, UVW, Polled, Speed of Sound On, Sonic Temp On, [Analogue inputs on], PRT On
+
+Format for software configuring is:
+<STX><ID>,±UUU.UU,±VVV.VV,±WWW.WW,U,±CCC.CC, ±TTT.TT,SS,[±1.1111,±2.2222,±3.3333,±4.4444],±PP.PPC,<ETX>CC<CR><LF>
+Where:
+<STX> - Start of string character (ASCII value 2)
+<ID> - Anemometer Identification (A-Z)
+±UUU.UU - ‘U’ axis velocity 0.01ms-1 units
+±VVV.VV - ‘V’ axis velocity 0.01ms-1 units
+±WWW.WW - ‘W’ axis velocity 0.01ms-1 units
+U - Units (M=m/s, N=knots, P=mph, K=kph)
+±CCC.CC - Speed of Sound in 0.01ms-1 units
+±TTT.TT - Sonic Temperature in Degrees C.
+SS - Status data (Codes 00 to 0B)
+±1.1111 - Analogue input 1 in volts
+±2.2222 - Analogue input 2 in volts
+±3.3333 - Analogue input 3 in volts
+±4.4444 - Analogue input 4 in volts
+±PP.PPC - PRT temperature in degrees C, e.g., +23.13deg C output as +23.13C in the string.
+<ETX> - End of string character (ASCII value 3)
+CC - Checksum of all Characters between <STX> and <ETX> (HEX byte)
+<CR><LF> - Carriage Return and Line Feed
+
+Polled Mode Notes General
+The unit must be set for a polled Mode (M3 or M4).
+When in the Polled mode, an output is only generated when the host system sends a Poll signal to the WindMaster consisting of the WindMaster Unit Identifier – that is, the relevant letter A – Z.
+The default setting is ‘Q’.
+It is recommended that letters A to F, K, M, N, and P are not used since they can appear in a WindMaster data string and might result in erroneous poll responses.
+The commands available in Polled Mode are:
+
+Description  -  Command  -  WindMaster Response
+WindMaster Unit Identifier  -  A...Z  -  Wind speed output generated
+Enable Polled mode  -  ?  -  (none)
+Disable Polled mode  -  !  -  (none)
+Request WindMaster Unit Identifier  -  &  -  A...Z (as configured)
+Enter Configuration mode  -  *<N>  -  CONFIGURATION MODE
+Default Poll Mode  -  Syncpoll 0  -  Ultrasonic firings take place in the background at the output rate. Data Output is asynchronous to the poll command.
+Single Ultrasonic Firing Poll mode  -  Syncpoll 1  -  A single ultrasonic firing result is output. It is triggered/synchronised to the poll command.
+
+* Where <N> is the Unit Identifier.
+It is suggested that in polled mode the following sequence is used for every poll for information.
+? Ensures that the Sensor is enabled to cover the event that a power down has occurred.
+A-Z Appropriate unit designator sent to retrieve a line of data.
+! Sent to disable poll mode and reduce possibility of erroneous poll generation.
+If the unit is powered down after use or upon switch on, then allow 5 seconds from switch on before sending poll commands.
+When in polled mode the unit will respond to a poll data command within 30mS of receiving the command.
+Maximum poll rate for all modes is 20Hz.
+
+Syncpoll 0 Mode Notes (Default)
+Default Syncpoll 0 is set up as follows: -
+Open Wind Software.
+Type * or *<N> (if already in a polled mode) to enter CONFIGURATION MODE.
+Type Syncpoll 0 and press Enter (note there is a space between Syncpoll and 0).
+Type Q and press Enter to go to SyncPoll 0 measurement mode.
+To check the current syncpoll setting when in configuration mode type Syncpoll and press return. The unit will respond with 1 or 0.
+Ultrasonic firings take place in the background.
+Receipt of a poll command will trigger an asynchronous Wind measurement output resultant from the previous measurements.
+The maximum Poll command rate is 20Hz for a single unit connected point to point.
+
+Syncpoll 1 Mode Notes
+Syncpoll 1 is set up as follows: -
+Open Wind Software.
+Type * or *<N> (if already in a polled mode) to enter CONFIGURATION MODE.
+Type Syncpoll 1 and press Enter (note there is a space between Syncpoll and 1).
+Type Q and press Enter to go to SyncPoll 1 measurement mode.
+To check the current Syncpoll setting when in configuration mode type Syncpoll and press return. The unit will respond with 1 or 0.
+Receipt of poll command will trigger a single 50mS or 31.25mS ultrasonic measurement and at the same time will trigger a Wind measurement output resultant from the previous polled measurement.
+The minimum Poll command rate is 20Hz.
+Analogue inputs are not supported in Syncpoll 1 mode.
+
+Mode 4 – ASCII, Polar, Polled
+Mode 4 (Normal Resolution Shown)
+ASCII, Polar+W, Polled, Speed of Sound On ,Sonic Temp On, [Analogue inputs On], PRT On
+<STX><ID>,DDD,MMM.MM,±WWW.WW,U,±CCC.CC,±TTT.TT,SS,[±1.1111,±2.2222,±3.3333,±4.4444],±PP.PPC,<ETX>CC<CR><LF>
+Where:
+<STX> - Start of string character (ASCII value 2)
+<ID> - Anemometer Identification (A-Z)
+DDD - Direction in degrees
+MMM.MM - Wind Magnitude
+±WWW.WW - ‘W’ axis velocity 0.01ms-1 units
+U - Units (M=m/s, N=knots, P=mph, K=kph)
+±CCC.CC - Speed of Sound in 0.01ms-1 units
+±TTT.TT - Sonic Temperature in Degrees C.
+SS - Status data (Codes 00 to 0B)
+±1.1111 - Analogue input 1 in volts
+±2.2222 - Analogue input 2 in volts
+±3.3333 - Analogue input 3 in volts
+±4.4444 - Analogue input 4 in volts
+±PP.PPC - PRT temperature in degrees C, e.g., +23.13deg C output as +23.13C in the string.
+<ETX> - End of string character (ASCII value 3)
+CC - Checksum of all Characters between <STX> and <ETX> (HEX byte)
+<CR><LF> - Carriage Return and Line Feed
+See also Polled Notes above.
+
+Mode 7 – Binary, Polar, Short
+<B1><B1>STATUS,DIR,MAG,W,SOS,CHECKSUM
+<B1> -
+<B1> -
+STATUS - Status data (Codes 00 to 10)
+DIR Wind Direction
+MAG Wind Speed
+W W axis velocity
+SOS Speed of Sound in 0.01ms
+CHECKSUM
+Notes:-
+Data is 2 byte signed two’s complement (except unsigned for SOS; 1 byte for checksum).
+Velocities are normal resolution (0.01m/s).
+Outputs that are disabled are padded with zero to give fixed size records.
+
+Mode 8 – Binary, UVW, Short
+<B2><B2>STATUS,U,V,W,SOS,CHECKSUM
+<B2> -
+<B2> -
+STATUS - Status data (Codes 00 to 0B)
+U U axis velocity
+V V axis velocity
+W W axis velocity
+SOS Speed of Sound in 0.01ms-1
+CHECKSUM
+
+Mode 9 – Binary, Polar, Long
+<B3><B3>STATUS,DIR,MAG,W,SOS,A1,A2,A3,A4,PRT,CHECKSUM
+<B3> -
+<B3> -
+STATUS - Status data (Codes 00 to 0B)
+DIR Wind Direction
+MAG Wind Speed
+W W axis velocity
+SOS Speed of Sound in 0.01ms -1
+A1 Analogue input 1
+A2 Analogue input 2
+A3 Analogue input 3
+A4 Analogue input 4
+PRT Platinum Resistance Thermometer input
+CHECKSUM
+
+Mode 10 – Binary, UVW, Long
+One record consists of 23 Bytes:
+0xB4 0xB4 StaL StaH Wc1L Wc1H Wc2L Wc2H Wc3L Wc3H SoSL SoSH A1L A1H A2H A2L A3H A3L A4H A4L TPrtL TPrtH,Checksum
+
+0xB4 0xB4 = Start message identifier (HEX B4 = decimal 180). Byte 1 and Byte 2
+Sta = Status data (Information only on low byte (Codes 00 to 0B), high byte always zero). Byte 3 and Byte 4
+Wc1 = U axis wind velocity (16 bit signed integer). Byte 5 and Byte 6
+Wc2 = V axis wind velocity (16 bit signed integer). Byte 7 and Byte 8
+Wc3 = W axis wind velocity (16 bit signed integer). Byte 9 and Byte 10
+SoS = Speed of Sound in 0.01ms (16 bit signed integer). Byte 11 and Byte 12
+A1 = Analogue input 1 (16 bit signed integer). Byte 13 and Byte 14
+A2 = Analogue input 2 (16 bit signed integer). Byte 15 and Byte 16
+A3 = Analogue input 3 (16 bit signed integer). Byte 17 and Byte 18
+A4 = Analogue input 4 (16 bit signed integer). Byte 19 and Byte 20
+TPrt = Temperature from PRT (16 bit signed integer). Byte 21 and Byte 22
+Checksum = Checksum (exclusive OR of bytes between start of message identifier and checksum byte). Byte 23
+
+SoS is always reported as Speed of Sound independent of A command setting.
+TPrt is always reported independent from the V command setting.
+A1 to A4 are always reported independent from the I command setting.
+
+Appendix A - Technical Specification
+
+* WindMaster Accuracy specification applies for wind speed up to range maximum, and for wind incidence up to ± 30 ° from the horizontal on units with firmware 2329-700 and higher.
+# Custom calibration (to be specified when ordering, or unit can be returned for calibration)
+
+Wind Speed:
+Range = 0 to 50 m/s
+Accuracy (12 m/s) = < 1.5% RMS
+Resolution = 0.01 or 0.001 m/s
+Units of Measurement = m/s, knots, mph, kph, or ft/minute
+
+Wind Direction:
+Range = 0 to 359 Degrees
+Accuracy (12 m/s) = 2 Degrees
+Resolution = 1 Degree or 0.1 Degree
+
+Speed of Sound:
+Range = 300 to 370 m/s
+Accuracy = < ± 0.5% @ 20 °C
+Resolution = 0.01 m/s
+
+Sonic Temperature:
+Range = -40 °C to +70 °C
+T_s' Accuracy (≥ 1 Hz) (All models, unchanged) = Eddy Covariance Quality
+Ts Accuracy (slow response, used as ambient thermometer, unit firmware 2329-700 or higher) = ± 2°C between -20° C to +30° C
+
+Output: RS232
+Baud Rate: 2400 to 57600
+Protocols: ASCII or Binary
+Data Output: 0.25, 0.5,1, 2, 4, 8, 10, 16, or 20 Hz
+Input voltage: 9V to 30V DC
+Current @12VDC = 55mA
+
+Appendix C - WindMaster Default Setup
+Mode 2 – ASCII, Polar, Continuous
+ASCII, Polar+W, Continuous
+
+Format for software configuring is:-
+<STX><ID>,DDD,MMM.MM,±WWW.WW,U,SS,<ETX>CC<CR><LF>
+Where:
+<STX> - Start of string character (ASCII value 2)
+<ID> - Anemometer Identification (A-Z)
+DDD - Direction in degrees
+MMM.MM - Wind Magnitude
+±WWW.WW - ‘W’ axis velocity 0.01ms-1 units
+U - Units (M=m/s, N=knots, P=mph, K=kph)
+SS - Status data (Codes 00 to 0B)
+<ETX> - End of string character (ASCII value 3)
+CC - Checksum of all Characters between <STX> and <ETX> (HEX byte)
+<CR><LF> - Carriage Return and Line Feed
+
+Appendix D - Configuring
+It is possible to configure the WindMaster using a terminal package (for example, TeraTerm or puTTY).
+Open the terminal package and adjust the Port settings to match WindMaster settings. 
+WindMaster default settings are:
+Bits per second = 19200
+Data bits = 8
+Parity None Stop bits = 1
+Flow Control (Handshaking) = None
+
+Assuming the WindMaster has been correctly connected to the PC and a Power Supply, the opening menu will show the WindMaster in Measurement mode and scroll continuous wind information data.
+Entering Configuration mode:
+From Continuous mode: *
+From Polled mode: * N where N is the Unit identifier (a letter between A and Z)
+
+The WindMaster responds with a CONFIGURATION MODE message, stops reporting wind measurements, and waits for a command (as detailed below).
+
+To exit configuration mode without making any changes, enter the following command: Q ENTER
+
+The WindMaster responds with wind measurements immediately when in Continuous mode, or on receipt of a Poll signal when in Polled mode.
+
+This will be followed by a checksum test and then continuous wind information is displayed in the example as follows (polar, continuous, all options on).
+
+Checking the configuration
+We recommend that, as a standard procedure, you use this command prior to, and after, changing any settings. It shows the current settings for most of the alterable settings.
+Command:
+*
+D 3 ENTER
+
+The WindMaster responds with the current default settings. 
+These are shown below:
+M2, U1, O1, L1, P1, B4, H1, NQ, E1, T1, S1, C2, A1, I1, J1, V1,X1, G0,K50
+
+We suggest you note down the settings, so that you can easily return to them.
+
+Return to measurement mode: Q ENTER
+
+Changing settings:
+To change a setting, refer to the sections below, and enter the command of the new setting required, followed by ENTER. 
+If successful, the new setting will be sent back as a message by the WindMaster.
+For example, to change the message format to UVW, Continuous, enter the command: M 1 ENTER
+The WindMaster will reply "M 1". 
+When the unit is returned to the Measurement mode, it will be in UVW, Continuous format.
+
+COMMAND LIST:
+A = SOS/Sonic Temp Output
+B = Baud Rate
+C = Analogue Angle Wrapping
+D = Diagnostic/Config Information
+E = Set Physical Comms
+F = Signal Processing
+G = For Future Use
+H = Power On Message
+I = Disable/Enable Analogue Input
+J = High/Low Resolution
+K = Minimum Direction Velocity
+L = Message Terminator
+M = Message Format
+N = Set Unit ID
+O = Set ASCII Format
+P = Set Output Rate
+Q = MEASUREMENT Mode
+R = NOT USED
+S = Analogue Output Range
+T = Analogue Output Type & Config
+U = Select Units
+V = PRT Output ON/OFF
+W = NOT USED
+X = Axis Alignment
+Y = NOT USED
+Z = NOT USED
+* = INTERACTIVE Mode
+
+Ax – Select SOS/Sonic Temp output:
+A1 = Neither
+A2 = SOS
+A3 = Sonic Temp
+A4 = Both
+
+The SOS and/or Sonic Temp are displayed after the UNITS and before the status byte, the SOS is always in m/s and the Sonic Temp is always in deg C.
+
+Bx – Set Baud rate:
+B1 = 2400
+B2 = 4800
+B3 = 9600
+B4 = 19200
+B5 = 38400
+B6 = 57600
+
+If a request is sent to change the Baud rate, before it changes it must be confirmed by entering B ENTER at the new Baud rate.
+E.g. If set to B3 (9600 baud), to change to B5 (38400 baud), enter B 5 ENTER , change host terminal to 38400 baud, and confirm by entering B ENTER.
+
+A random echo may be generated after the B confirmation request is sent by the WindMaster.
+
+Cx – Analogue output polar direction wrapping:
+C1 = 540-degree wraparound on analogue output
+C2 = 360-degree wraparound on analogue output
+
+Dx – Diagnostic and configuration information:
+D1 = Request serial number
+D2 = Request SW version
+D3 = Request current configuration
+D4 = NONE
+D5 = NONE
+D6 = NONE
+D7 = Report DAC channel configuration
+
+Examples:
+Request Current Configuration:
+COMMAND: D3
+RESPONSE: M2,U1,O1,L1,P1,B4,H1,NQ,E1,T1,S1,C2,A1,I1,J1,V1,X1,G0,K50
+
+Report DAC Channel Configuration:
+COMMAND: D7
+RESPONSE:
+DAC CHAN 01, MODE 05, CONFIG 02
+DAC CHAN 02, MODE 09, CONFIG 01
+DAC CHAN 03, MODE 04, CONFIG 01
+DAC CHAN 04, MODE 08, CONFIG 01
+Where:
+Mode 01 = DAC Channel Off.
+Mode 02 = U Magnitude Output.
+Mode 03 = V Magnitude Output.
+Mode 04 = W Magnitude Output.
+Mode 05 = Polar Angle Output.
+Mode 08 = Status (Good/Bad).
+Mode 09 = Polar Magnitude Output.
+and Configuration code for Mode 08 equates to good/bad status setting.
+Config 01 = Good is high output level, Bad is low level.
+Config 02 = Good is low output level, Bad is high level.
+and Configuration codes for Modes 02, 03, 04, and 09 equate to scale setting:
+Config 01 = 5m/s to Config 08 = 120m/s
+and Configuration code for Mode 5 equates to angle wrapping where:
+Config 01 = 540° wraparound.
+Config 02 = 360° wraparound.
+
+Ex Set Physical Communications:
+E1 = AUTO
+E2 = RS485
+E3 = RS232
+
+It is recommended to leave the unit in AUTO mode. This can also be overridden from RS232 to RS422/485 by:
+On 31-way connector units without a Pipe Mount Box link the comms line to V+ for RS232 or to 0V for RS422/485.
+On units fitted with a Pipe mount box if the link in the box is in its default position (see page 18) then the above external link connections apply.
+On a unit fitted with a Pipe Mount box the internal link in the box may be moved to set R232 and RS422/RS485 operation (see section 4.6.2). 
+If the link is moved from its default position, then an external wire link should not be used.
+If a unit is set for E3 and required to be set back to E1 then with a terminal connection established go into Configuration Mode, Type E1 and Press Enter. 
+Then Type E and Press Enter. 
+Type Q and press Enter to go back into measurement mode.
+
+Fx y Signal Processing:
+F1 0 = Retries Off
+F1 1 = Retries On
+F2 0 = Instantaneous Sampling Off
+F2 1 = Instantaneous Sampling On
+F3 0 = Calibration Off
+F3 1 = Calibration On
+
+Retries Enabled:
+WindMaster Default setting is ON.
+Enabled – If this mode is selected, if a problem sample is detected, the unit will attempt another ultrasonic firing within the set time parameters.
+Disabled – The unit will not attempt to re-check problem samples.
+
+Instantaneous Sampling:
+Default is OFF.
+Enabled – The WindMaster can be configured to output the sampled data direct at the selected output rate without any averaging "Instantaneous Sampling". 
+If for example the sensor is set for 1Hz output rate, then the unit will undertake one set of transducer firings and output the result after the 1 second period.
+Disabled – Alternatively data can be sampled at 20Hz or 32Hz and averaged. This applies for wind data and speed of sound. All samples are transmitted with a status code.
+If the sensor is for example set to 1 Hz output rate, then the unit will undertake a full set of firings (at 20 Hz or 32Hz) and output the average result of them after the 1-second period.
+
+Calibration Enabled
+Default is ON.
+Enabled – Generic data based on that collected during wind tunnel testing is programmed into an internal calibration table that is used to compensate for turbulence created around the spars and transducers.
+Disabled – Turns off the calibration table data, there is no adjustment to account for turbulence around the spars and transducers and returns the unit to raw uncorrected operation.
+
+Hx – Enable/Disable power on message:
+H1 = Power on message enabled.
+H2 = Power on message disabled.
+
+If the power up message is On, then a message similar to that below is output, whenever the unit goes into Measurement mode 
+(i.e., when power is first applied to the unit, or the unit returns to Measurement mode from Configuration mode):
+WindMaster Pro 32Hz (SS) Gill Instruments Ltd
+2329-700
+RS232 (AUTO)
+CHECKSUM ROM:9B50 9B50 *PASS*
+CHECKSUM FAC:07BC 07BC *PASS*
+CHECKSUM ENG:1E58 1E58 *PASS*
+CHECKSUM CAL:3891 3891 *PASS*
+
+If any of these checksums fail, the word PASS will be replaced by FAIL and the unit will use its default settings. 
+If the checksum repeatedly fails after power on – contact your supplier.
+
+Ix – Enable/Disable analogue input message (option dependent):
+I0 = Analogue Input Data Off.
+I1 = Analogue Input data On.
+I2 = Analogue inputs set for 2 Differential Mode Pairs.
+
+Jx – Set the unit Resolution:
+J1 = Select Normal Resolution, 2 decimal point readings).
+J2 = Select High Resolution, 3 decimal point readings).
+
+J2 High resolution is applicable to Wind Speed and Wind direction for Metres/sec setting only.
+
+Kx – Set the Minimum Direction Velocity:
+K50 = Minimum direction velocity.
+K0 to K5000 = Select minimum direction velocity (in 0.001m/s steps).
+
+Lx – Message Terminator:
+L1 = <CR><LF>
+L2 = <CR>
+
+Mx – Message Format:
+M1 = UVW
+M2 = Polar
+M3 = UVW Polled
+M4 = Polar Polled
+M7 = Binary, Polar, Short
+M8 = Binary, UVW, Short
+M9 = Binary, Polar, Long
+M10 = Binary, UVW, Long
+
+Nx – Set unit ID:
+Sets the unit ID displayed at the start of all GILL communications strings
+Set Q (default), …from A to Z Command N<Q>
+
+Ox – Set ASCII output format:
+O1 = CSV Format
+O2 = Fixed Field
+
+Example string for CSV data changing to an error status code condition.
+Q,335.3,001.261,-001.282,M,+345.41,+023.05,00,+2.4181,+2.4181,+2.4162,+2.4175,-50.00C,78
+Q,,,,M,,,07,+2.4181,+2.4187,+2.4162,+2.4175,-50.00C,72
+Example string for Fixed Field data changing to an error status code condition.
+Q,251.7,000.860,-000.401,M,+346.43,+024.80,00,+2.4181,+2.4187,+2.4169,+2.4175,-50.00C,7F
+Q,999.9,999.999,+999.999,M,+999.99,+999.99,07,+2.4181,+2.4187,+2.4169,+2.4181,-50.00C,77
+
+Px – Set output rate:
+P18 = Rate is 1 Hz (20Hz Sampling)
+P19 = Rate is 2 Hz (20Hz Sampling)
+P20 = Rate is 4 Hz (20Hz Sampling)
+P21 = Rate is 5 Hz (20Hz Sampling)
+P22 = Rate is 8 Hz (32Hz Sampling)
+P23 = Rate is 10 Hz (20Hz Sampling)
+P24 = Rate is 16 Hz (32Hz Sampling)
+P25 = Rate is 20 Hz (20Hz Sampling)
+P26 = Rate is 32 Hz (32Hz Sampling)
+
+20 Rate is ¼ Hz
+21 Rate is ½ Hz
+
+Sx – Analogue output range (option dependent):
+S1 = Full range is 5m/s
+S2 = Full range is 10m/s
+S3 = Full range is 20m/s
+S4 = Full range is 30m/s
+S5 = Full range is 40m/s
+S6 = Full range is 50m/s
+S7 = Full range is 60m/s
+S8 = Full range is 120m/s
+
+This sets the velocity scaling for the analogue output.
+
+Tx – Set analogue output type (option dependent):
+T1 = 0V to 5V Range
+T2 = -2.5V to 2.5V Range
+T3 = 4mA to 20mA Range
+T4 = -5V to 5V Range
+T5 = 0mA to 20mA Range
+
+Ux – Set units:
+U1 = m/s
+U2 = Knots
+U3 = MPH
+U4 = KPH
+U5 = FPM
+
+Vx – Enable/Disable PRT:
+V1 = Off
+V2 = On
+
+*Note, PRT is not available on the WindMaster
+
+Xx – Axis Alignment:
+X1 = Align U Axis to unit North Spar.
+X2 = Align U to the top axis transducer 1.
+X3 = Same as X1 but inverted for upside down operation.
+X4 = Same as X2 but inverted for upside down operation.
+
+Appendix F - Status (error) Codes
+The Status code is sent as part of each wind measurement message.
+
+CODE  -  STATUS  -  CONDITION
+00  -  OK  -  Functioning Correctly
+01  -  Sample Failure  -  Insufficient samples in average period from transducer pair 1
+02  -  Sample Failure  -  Insufficient samples in average period from transducer pair 2
+03  -  Sample Failure  -  Insufficient samples in average period from transducer pair 3
+04  -  Sample Failure  -  Insufficient samples in average period from transducer pairs 1,2
+05  -  Sample Failure  -  Insufficient samples in average period from transducer pairs 1,3
+06  -  Sample Failure  -  Insufficient samples in average period from transducer pairs 2,3
+07  -  Sample Failure  -  Insufficient samples in average period from all transducer pairs
+08  -  NVM ERROR  -  NVM Checksum Failed
+09  -  ROM ERROR  -  ROM Checksum Failed
+0A  -  System Gain At Maximum  -  Results OK, but marginal operation.
+0B  -  Retries  -  Retries Used
+
+Appendix H – Tests
+Bench Test
+• Couple the WindMaster to the host system and power supply, using a known working test cable.
+• Check that the unit is correctly configured Appendix D
+• Check for normal output data, and that the Status Code is OK – 00.
+• If the status code is other than 00 or 0A, refer to Appendix F Status (error) codes.
+• Use an office fan (or similar) to check that the unit is sensing wind, turning the unit to simulate changing wind direction and to check that all three axes are functioning.
+
+This a quick functional test. There are no calibration adjustments.
+Refer to Dx – diagnostic and configuration information for further self-tests.
+
+Head Alignment Test
+A test is available that allows a Transducer Path Alignment test (D6) to be undertaken and that factors in room temperature.
+NOTE 1: The maximum room test temperature is +22 deg C (minimum +14 degrees C).
+NOTE 2: The test should be performed in a zero-wind environment or as near as possible.
+Setting up a WindMaster with a Terminal Program:
+Connect WindMaster (set/wired for RS232 or RS422/232/USB convertor in line) to the PC. 
+Then open Tera Term as follows:
+Select Serial and required port number. Click on OK.
+Left click SETUP and use the drop-down menu to select ‘SERIAL PORT’.
+On the following screen.
+Set Bits per second drop down menu to the appropriate WindMaster baud rate setting e.g. 19200 bauds is the default WindMaster setting.
+Set Data Bits to 8.
+Set Parity to None.
+Set Stop Bits to 1.
+Set Flow Control to None.
+Click on OK.
+
+To Communicate with the WindMaster:
+Type * (or hold down asterisk).
+This will bring up the text CONFIGURATION MODE.
+Type D1.
+The unit will respond with the serial number.
+Type D2.
+The unit will respond with the Software version.
+Type D3.
+The unit will respond with the unit Configuration.
+
+D6 Test
+Type D6 xx and then press Enter where xx is the temperature in deg C between the limits 14 to 22 deg C.
+For example, if you have a room temperature of 21 deg C,
+Type D6 21 and press Enter
+Confirm that you get pass results, if Refer to Manual should still appear it is then likely that a path length is out of spec and the unit will need to be returned for investigation.
