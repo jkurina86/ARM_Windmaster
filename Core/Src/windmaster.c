@@ -11,19 +11,14 @@
 #include "systime.h"
 #include "recorder.h"
 #include "shell.h"
-#include "stm32l4xx_ll_usart.h"
-#include "stm32l4xx_ll_dma.h"
-#include "stm32l4xx_ll_gpio.h"
-#include "stm32l4xx_ll_bus.h"
+#include "usart.h"
 #include <stdio.h>
+#include <string.h>
 
 /* Private defines -----------------------------------------------------------*/
-#define DMA_BUFFER_SIZE     1024        /* 1 KB for incoming WM sensor data */
-#define PACKET_SIZE         23          /* 23 Bytes for M10, 13 Bytes for M8 */
-#define HEADER_SIZE         2
-#define HEADER_VALUE        0xB4        /* 0xB4 for M10, 0xB2 for M8 */
-#define DATA_SIZE           18          /* 18 Bytes for M10, 8 Bytes for M8 */
-#define CHECKSUM_SIZE       1
+#define DMA_BUFFER_SIZE 1024 /* 1 KB for incoming WM sensor data */
+#define PACKET_SIZE 23
+#define HEADER_VALUE 0xB4
 
 /* Private variables ---------------------------------------------------------*/
 static bool wm_running = false;
@@ -40,18 +35,13 @@ static void flush_rx(void);
 /** @brief  Initialize the WindMaster
   * @param  None
   * @retval None
-  * @note   Sends '*\r' command to enter configuration mode, flushes echo,
-  *         then configures DMA1 Ch6 for RX (but doesn't enable it).
-  *         Leaves the WindMaster in config mode (not sending binary data).
-  *         Call wm_start() to begin measurement mode and enable DMA.
-  *         USART2 RX uses DMA1 Channel 6.
-  *         USART2 @ 57600 baud, 8-N-1.
   */
-void wm_init(void) {
+void wm_init(void)
+{
   /* Clear any pending flags and data */
-  LL_USART_ClearFlag_TC(USART2);
-  LL_USART_ClearFlag_IDLE(USART2);
-  (void)USART2->RDR;  // Dummy read to clear RX
+  __HAL_UART_CLEAR_FLAG(&huart2, UART_FLAG_TC);
+  __HAL_UART_CLEAR_IDLEFLAG(&huart2);
+  (void)huart2.Instance->RDR;  /* Dummy read to clear RX */
 
   /* Send '*\r' to enter configuration mode (stops any output) */
   send_command("*\r");
@@ -60,31 +50,24 @@ void wm_init(void) {
   HAL_Delay(10);
   flush_rx();
 
-  /* Now configure DMA for binary data reception */
-  /* Ensure DMA channel is disabled before touching counters/addresses */
-  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_6);
+  /* Ensure DMA channel is disabled before configuration */
+  __HAL_DMA_DISABLE(huart2.hdmarx);
 
   /* Enable USART2 DMA request for RX */
-  LL_USART_EnableDMAReq_RX(USART2);
+  SET_BIT(huart2.Instance->CR3, USART_CR3_DMAR);
 
   /* Configure DMA RX addresses (DMA1 Channel 6) */
-  LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_6,
-                        LL_USART_DMA_GetRegAddr(USART2, LL_USART_DMA_REG_DATA_RECEIVE),
-                        (uint32_t)dma_buffer_wm,
-                        LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-
-  LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_6, DMA_BUFFER_SIZE);
+  huart2.hdmarx->Instance->CPAR = (uint32_t)&huart2.Instance->RDR;
+  huart2.hdmarx->Instance->CMAR = (uint32_t)dma_buffer_wm;
+  huart2.hdmarx->Instance->CNDTR = DMA_BUFFER_SIZE;
 }
 
 /** @brief  Start the WindMaster
   * @param  None
   * @retval None
-  * @note   Sends 'Q\r' to start measurement mode (binary output).
-  *         Flushes echo, advances DMA buffer position to skip initial <CR><LF>,
-  *         enables DMA channel for data reception, and sets running flag.
   */
-void wm_start(void) {
-  /* Return if already running */
+void wm_start(void)
+{
   if (wm_running) {
     return;
   }
@@ -97,12 +80,17 @@ void wm_start(void) {
   /* Advance the DMA buffer position to skip the <CR><LF> it sends before the first measurement */
   dma_old_pos_wm = 2;
 
-  /* Reset DMA transfer counter (must be done while channel is disabled) */
-  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_6);
-  LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_6, DMA_BUFFER_SIZE);
+  /* Reset DMA (must be done while channel is disabled) */
+  __HAL_DMA_DISABLE(huart2.hdmarx);
+  huart2.hdmarx->Instance->CPAR = (uint32_t)&huart2.Instance->RDR;
+  huart2.hdmarx->Instance->CMAR = (uint32_t)dma_buffer_wm;
+  huart2.hdmarx->Instance->CNDTR = DMA_BUFFER_SIZE;
+
+  /* Ensure USART2 DMA request is enabled */
+  SET_BIT(huart2.Instance->CR3, USART_CR3_DMAR);
 
   /* Enable DMA for binary data reception */
-  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_6);
+  __HAL_DMA_ENABLE(huart2.hdmarx);
 
   /* Initialize latest data */
   memset(&latest_packet, 0, sizeof(WM_Packet_t));
@@ -114,13 +102,12 @@ void wm_start(void) {
 /** @brief  Stop the WindMaster
   * @param  None
   * @retval None
-  * @note   Disables DMA, sends '*\r' to enter configuration mode (stops binary output),
-  *         flushes echo, and clears running flag.
   */
-void wm_stop(void) {
+void wm_stop(void)
+{
   if (wm_running) {
     /* Disable DMA to prevent binary data corruption during command */
-    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_6);
+    __HAL_DMA_DISABLE(huart2.hdmarx);
 
     /* Send '*\r' to enter configuration mode (stops output) */
     send_command("*\r");
@@ -137,21 +124,19 @@ void wm_stop(void) {
   * @param  None
   * @retval true if running, false otherwise
   */
-bool wm_is_running(void) {
+bool wm_is_running(void)
+{
   return wm_running;
 }
 
 /** @brief Drain and queue the latest WM packet
   * @param  None
   * @retval true if a complete packet was processed, false otherwise
-  * @note   Processes data from the DMA buffer, extracts complete packets,
-  *         verifies checksums, and updates the latest_packet structure.
-  * @note   Iteration limit to prevent blocking.
   */
 bool wm_drain_and_queue(void)
 {
   const uint16_t MASK = DMA_BUFFER_SIZE - 1;
-  const uint16_t wr = (DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_6)) & MASK;
+  const uint16_t wr = (DMA_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(huart2.hdmarx)) & MASK;
   uint16_t rd = dma_old_pos_wm;
   uint16_t avail = (wr - rd) & MASK;
   bool packets_drained = false;
@@ -161,11 +146,11 @@ bool wm_drain_and_queue(void)
   /* Loop through the DMA buffer if at least one full packet is available */
   while (avail >= PACKET_SIZE && iterations < MAX_ITERATIONS) {
     iterations++;
-    
-    /* Expect 2 byte header header */
+
+    /* Expect 2 byte header */
     uint8_t h0 = dma_buffer_wm[rd];
     uint8_t h1 = dma_buffer_wm[(rd + 1) & MASK];
-    
+
     /* If header bytes do not match expected values, advance by one and continue */
     if (h0 != HEADER_VALUE || h1 != HEADER_VALUE) {
       rd = (rd + 1) & MASK;
@@ -206,57 +191,44 @@ bool wm_drain_and_queue(void)
 /** @brief  Send a command to the WindMaster using polling TX
   * @param  cmd: Null-terminated command string to send
   * @retval None
-  * @note   Transmits the command string over USART2 using polling mode.
-  *         Used for short configuration commands ('*\r', 'Q\r').
-  *         Includes 2ms inter-character delay to allow WindMaster to echo and process each byte.
+  * @note   Sends character by character with TXE/TC waits.
   */
-static void send_command(const char* cmd) {
-  while (*cmd) {
-    /* Wait for TX empty */
-    while (!LL_USART_IsActiveFlag_TXE(USART2));
-
-    /* Send character */
-    LL_USART_TransmitData8(USART2, *cmd);
-
-    /* Wait for transmission complete */
-    while (!LL_USART_IsActiveFlag_TC(USART2));
-
-    cmd++;
-  }
+static void send_command(const char* cmd)
+{
+  uint16_t len = strlen(cmd);
+  HAL_UART_Transmit(&huart2, (uint8_t*)cmd, len, HAL_MAX_DELAY);
 }
 
 /** @brief  Flush RX FIFO to clear command echoes
   * @param  None
   * @retval None
-  * @note   Reads and discards all available data from USART2 RX.
-  *         Used after sending configuration commands to clear echoes.
   */
-static void flush_rx(void) {
+static void flush_rx(void)
+{
   /* Drain RX FIFO */
-  while (LL_USART_IsActiveFlag_RXNE(USART2)) {
-    (void)LL_USART_ReceiveData8(USART2);
+  while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_RXNE)) {
+    (void)huart2.Instance->RDR;
   }
 
   /* Clear IDLE flag if set */
-  if (LL_USART_IsActiveFlag_IDLE(USART2)) {
-    LL_USART_ClearFlag_IDLE(USART2);
+  if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_IDLE)) {
+    __HAL_UART_CLEAR_IDLEFLAG(&huart2);
   }
 }
 
-/** @brief Validate a received WM packet
-  * @param pkt: Pointer to the received packet data
-  * @param packet: Pointer to WM_Packet_t structure to populate
+/** @brief  Validate a received WM packet
+  * @param  pkt: Pointer to the start of the packet buffer
+  * @param  packet: Pointer to WM_Packet_t structure to populate
   * @retval true if the packet is valid, false otherwise
-  * @note   Validates the packet structure and checksum, updating the latest_packet
-  *         structure if valid.
   */
-bool wm_validate_packet(const uint8_t* pkt, WM_Packet_t* packet) {
+bool wm_validate_packet(const uint8_t* pkt, WM_Packet_t* packet)
+{
   /* Validate header */
   if (pkt[0] != HEADER_VALUE || pkt[1] != HEADER_VALUE) {
     return false;
   }
 
-  /* Compute checksum (XOR of bytes BETWEEN header and checksum, i.e., bytes 2-21) */
+  /* Compute checksum (XOR of bytes 2-21) */
   uint8_t checksum = 0;
   for (uint8_t i = 2; i < PACKET_SIZE - 1; i++) {
     checksum ^= pkt[i];
@@ -267,7 +239,6 @@ bool wm_validate_packet(const uint8_t* pkt, WM_Packet_t* packet) {
     return false;
   }
 
-  /* Populate the structure */
   memcpy(packet, pkt, PACKET_SIZE);
   return true;
 }

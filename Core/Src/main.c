@@ -42,7 +42,6 @@
 #include <stdlib.h>
 #include "ab-rtcmc-rtc.h"
 #include "systime.h"
-#include "stm32l4xx_ll_dma.h"
 #include "telus.h"
 /* USER CODE END Includes */
 
@@ -133,7 +132,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   /* Start the free-running 1 MHz timer */
-  LL_TIM_EnableCounter(TIM2);
+  HAL_TIM_Base_Start(&htim2);
 
 
   /* Start the 20 Hz timer and interrupt */
@@ -273,25 +272,25 @@ void snooze (uint16_t seconds)
   }
 
   /* Disable the TIM2 1Mhz free-running counter */
-  LL_TIM_DisableCounter(TIM2);
+  HAL_TIM_Base_Stop(&htim2);
   /* Disable the TIM3 counter */
-  LL_TIM_DisableCounter(TIM3);
+  HAL_TIM_Base_Stop(&htim3);
   /* Disable TIM4 */
-  LL_TIM_DisableCounter(TIM4);
+  HAL_TIM_Base_Stop(&htim4);
 
   /* Turn off the SPI Bus */
-  LL_SPI_Disable(SPI1);
-  LL_SPI_Disable(SPI2);
+  __HAL_SPI_DISABLE(&hspi1);
+  __HAL_SPI_DISABLE(&hspi2);
 
   /* Turn off SD Card Power */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_2, GPIO_PIN_RESET);
 
   /* Turn off UARTs */
-  LL_USART_Disable(USART1);
-  LL_USART_Disable(USART2);
-  LL_USART_Disable(USART3);
-  LL_USART_Disable(UART4);
-  LL_USART_Disable(UART5);
+  __HAL_UART_DISABLE(&huart1);
+  __HAL_UART_DISABLE(&huart2);
+  __HAL_UART_DISABLE(&huart3);
+  __HAL_UART_DISABLE(&huart4);
+  __HAL_UART_DISABLE(&huart5);
 
   /* Turn off the RS232 transceivers */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET); // USART3
@@ -336,10 +335,10 @@ void wakeup (void)
   HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
 
   /* Re-enable the TIM2 1Mhz free-running counter */
-  LL_TIM_EnableCounter(TIM2);
+  HAL_TIM_Base_Start(&htim2);
 
   /* Re-enable the TIM3 counter for PPS synchronization */
-  LL_TIM_EnableCounter(TIM3);
+  HAL_TIM_Base_Start(&htim3);
 
   /* Reset the system time from the RTC */
   RTC_DateTime_t wakeup_dt;
@@ -351,8 +350,8 @@ void wakeup (void)
   HAL_Delay(10);
 
   /* Turn on the SPI Bus */
-  LL_SPI_Enable(SPI1);
-  LL_SPI_Enable(SPI2);
+  __HAL_SPI_ENABLE(&hspi1);
+  __HAL_SPI_ENABLE(&hspi2);
 
   /* Turn on the RS232 transceivers */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);   /* USART3 */
@@ -362,11 +361,11 @@ void wakeup (void)
   /* UART4 RS232 Transceiver is Always-On */
 
   /* Turn on UARTs */
-  LL_USART_Enable(USART1);
-  LL_USART_Enable(USART2);
-  LL_USART_Enable(USART3);
-  LL_USART_Enable(UART4);
-  LL_USART_Enable(UART5);
+  __HAL_UART_ENABLE(&huart1);
+  __HAL_UART_ENABLE(&huart2);
+  __HAL_UART_ENABLE(&huart3);
+  __HAL_UART_ENABLE(&huart4);
+  __HAL_UART_ENABLE(&huart5);
 
   /* Re-initialize UART interrupts for shell */
   init_uart_interrupts();

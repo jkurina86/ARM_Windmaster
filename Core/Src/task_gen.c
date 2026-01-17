@@ -13,11 +13,14 @@
 #include "main.h"
 #include "rtc.h"
 #include "systime.h"
-#include "stm32l4xx_ll_usart.h"
 #include <string.h>
 
 /* External variables --------------------------------------------------------*/
 extern UART_HandleTypeDef huart1;
+extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart3;
+extern UART_HandleTypeDef huart4;
+extern UART_HandleTypeDef huart5;
 extern RTC_HandleTypeDef hrtc;
 
 /* Public functions ----------------------------------------------------------*/
@@ -50,7 +53,7 @@ void handle_hello(const void *arg)
 {
     const hello_args_t *args = (const hello_args_t *)arg;
     uint8_t uart_num = args->uart_num;
-    
+
     /* Validate UART number */
     if (uart_num < 1 || uart_num > 5) {
         shell_print("Usage: hello <uart_number>\r\n");
@@ -60,73 +63,36 @@ void handle_hello(const void *arg)
         shell_print(SHELL_PROMPT);
         return;
     }
-    
+
     const char *hello_msg = "\r\n ***Hello World!*** \r\n";
     UART_HandleTypeDef *huart_ptr = NULL;
-    
+
     /* Select the appropriate UART handle */
     switch (uart_num) {
         case 1:
             huart_ptr = &huart1;
             break;
         case 2:
-            {
-                /* Send message using LL functions */
-                for (size_t i = 0; i < strlen(hello_msg); i++) {
-                    while (!LL_USART_IsActiveFlag_TXE(USART2));
-                    LL_USART_TransmitData8(USART2, hello_msg[i]);
-                }
-                while (!LL_USART_IsActiveFlag_TC(USART2));
-                
-                shell_printf("Hello message sent to UART%d\r\n", uart_num);
-                shell_print(SHELL_PROMPT);
-                return;
-            }
+            huart_ptr = &huart2;
+            break;
         case 3:
-            {
-                for (size_t i = 0; i < strlen(hello_msg); i++) {
-                    while (!LL_USART_IsActiveFlag_TXE(USART3));
-                    LL_USART_TransmitData8(USART3, hello_msg[i]);
-                }
-                while (!LL_USART_IsActiveFlag_TC(USART3));
-                
-                shell_printf("Hello message sent to UART%d\r\n", uart_num);
-                shell_print(SHELL_PROMPT);
-                return;
-            }
+            huart_ptr = &huart3;
+            break;
         case 4:
-            {
-                for (size_t i = 0; i < strlen(hello_msg); i++) {
-                    while (!LL_USART_IsActiveFlag_TXE(UART4));
-                    LL_USART_TransmitData8(UART4, hello_msg[i]);
-                }
-                while (!LL_USART_IsActiveFlag_TC(UART4));
-                
-                shell_printf("Hello message sent to UART%d\r\n", uart_num);
-                shell_print(SHELL_PROMPT);
-                return;
-            }
+            huart_ptr = &huart4;
+            break;
         case 5:
-            {
-                for (size_t i = 0; i < strlen(hello_msg); i++) {
-                    while (!LL_USART_IsActiveFlag_TXE(UART5));
-                    LL_USART_TransmitData8(UART5, hello_msg[i]);
-                }
-                while (!LL_USART_IsActiveFlag_TC(UART5));
-                
-                shell_printf("Hello message sent to UART%d\r\n", uart_num);
-                shell_print(SHELL_PROMPT);
-                return;
-            }
+            huart_ptr = &huart5;
+            break;
         default:
             shell_print("Error: Invalid UART number\r\n");
             shell_print(SHELL_PROMPT);
             return;
     }
-    
-    /* Send the hello message to UART1 */
+
+    /* Send the hello message using HAL */
     HAL_StatusTypeDef result = HAL_UART_Transmit(huart_ptr, (uint8_t*)hello_msg, strlen(hello_msg), HAL_MAX_DELAY);
-    
+
     if (result == HAL_OK) {
         shell_printf("Hello message sent to UART%d\r\n", uart_num);
     } else {

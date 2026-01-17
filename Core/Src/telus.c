@@ -12,8 +12,7 @@
 #include "telus.h"
 #include "calculations.h"
 #include "systime.h"
-#include "stm32l4xx_ll_dma.h"
-#include "stm32l4xx_ll_usart.h"
+#include "usart.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -71,14 +70,14 @@ void telus_init(void) {
     configure_dma_tx();
 
     /* Enable UART4 DMA requests */
-    LL_USART_EnableDMAReq_RX(UART4);
-    LL_USART_EnableDMAReq_TX(UART4);
+    SET_BIT(huart4.Instance->CR3, USART_CR3_DMAR);
+    SET_BIT(huart4.Instance->CR3, USART_CR3_DMAT);
 
     /* Enable UART4 */
-    LL_USART_Enable(UART4);
+    __HAL_UART_ENABLE(&huart4);
 
     /* Start RX DMA */
-    LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_5);
+    __HAL_DMA_ENABLE(huart4.hdmarx);
 }
 
 /**
@@ -109,7 +108,7 @@ void telus_service(void) {
  */
 void telus_tx_complete(void) {
     /* Disable TX DMA channel */
-    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_3);
+    __HAL_DMA_DISABLE(huart4.hdmatx);
 
     /* Clear the report buffer after successful transmission */
     calc_clear_reports();
@@ -127,16 +126,14 @@ void telus_tx_complete(void) {
  */
 static void configure_dma_rx(void) {
     /* Disable channel before configuration */
-    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_5);
+    __HAL_DMA_DISABLE(huart4.hdmarx);
 
     /* Configure addresses */
-    LL_DMA_ConfigAddresses(DMA2, LL_DMA_CHANNEL_5,
-                           LL_USART_DMA_GetRegAddr(UART4, LL_USART_DMA_REG_DATA_RECEIVE),
-                           (uint32_t)rx_buffer,
-                           LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
+    huart4.hdmarx->Instance->CPAR = (uint32_t)&huart4.Instance->RDR;
+    huart4.hdmarx->Instance->CMAR = (uint32_t)rx_buffer;
 
     /* Set data length */
-    LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_5, RX_BUFFER_SIZE);
+    huart4.hdmarx->Instance->CNDTR = RX_BUFFER_SIZE;
 }
 
 /**
@@ -145,22 +142,22 @@ static void configure_dma_rx(void) {
  */
 static void restart_dma_rx(void) {
     /* Disable channel */
-    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_5);
+    __HAL_DMA_DISABLE(huart4.hdmarx);
 
     /* Clear buffer */
     memset(rx_buffer, 0, RX_BUFFER_SIZE);
     rx_read_pos = 0;
 
     /* Reset data length */
-    LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_5, RX_BUFFER_SIZE);
+    huart4.hdmarx->Instance->CNDTR = RX_BUFFER_SIZE;
 
     /* Clear flags */
-    LL_DMA_ClearFlag_TC5(DMA2);
-    LL_DMA_ClearFlag_HT5(DMA2);
-    LL_DMA_ClearFlag_TE5(DMA2);
+    __HAL_DMA_CLEAR_FLAG(huart4.hdmarx, DMA_FLAG_TC5);
+    __HAL_DMA_CLEAR_FLAG(huart4.hdmarx, DMA_FLAG_HT5);
+    __HAL_DMA_CLEAR_FLAG(huart4.hdmarx, DMA_FLAG_TE5);
 
     /* Re-enable channel */
-    LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_5);
+    __HAL_DMA_ENABLE(huart4.hdmarx);
 }
 
 /**
@@ -170,16 +167,14 @@ static void restart_dma_rx(void) {
  */
 static void configure_dma_tx(void) {
     /* Disable channel before configuration */
-    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_3);
+    __HAL_DMA_DISABLE(huart4.hdmatx);
 
     /* Configure addresses */
-    LL_DMA_ConfigAddresses(DMA2, LL_DMA_CHANNEL_3,
-                           (uint32_t)tx_buffer,
-                           LL_USART_DMA_GetRegAddr(UART4, LL_USART_DMA_REG_DATA_TRANSMIT),
-                           LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
+    huart4.hdmatx->Instance->CMAR = (uint32_t)tx_buffer;
+    huart4.hdmatx->Instance->CPAR = (uint32_t)&huart4.Instance->TDR;
 
     /* Enable transfer complete interrupt */
-    LL_DMA_EnableIT_TC(DMA2, LL_DMA_CHANNEL_3);
+    __HAL_DMA_ENABLE_IT(huart4.hdmatx, DMA_IT_TC);
 }
 
 /**
@@ -190,7 +185,7 @@ static void configure_dma_tx(void) {
  */
 static bool check_for_command(void) {
     /* Get current write position from DMA counter */
-    uint16_t dma_remaining = LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_5);
+    uint16_t dma_remaining = __HAL_DMA_GET_COUNTER(huart4.hdmarx);
     uint16_t wr = RX_BUFFER_SIZE - dma_remaining;
     uint16_t rd = rx_read_pos;
 
@@ -318,16 +313,16 @@ static void start_dma_tx(uint16_t length) {
     state = TELUS_SENDING;
 
     /* Disable channel before reconfiguration */
-    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_3);
+    __HAL_DMA_DISABLE(huart4.hdmatx);
 
     /* Set data length */
-    LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_3, length);
+    huart4.hdmatx->Instance->CNDTR = length;
 
     /* Clear any pending flags */
-    LL_DMA_ClearFlag_TC3(DMA2);
-    LL_DMA_ClearFlag_HT3(DMA2);
-    LL_DMA_ClearFlag_TE3(DMA2);
+    __HAL_DMA_CLEAR_FLAG(huart4.hdmatx, DMA_FLAG_TC3);
+    __HAL_DMA_CLEAR_FLAG(huart4.hdmatx, DMA_FLAG_HT3);
+    __HAL_DMA_CLEAR_FLAG(huart4.hdmatx, DMA_FLAG_TE3);
 
     /* Enable channel to start transfer */
-    LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_3);
+    __HAL_DMA_ENABLE(huart4.hdmatx);
 }

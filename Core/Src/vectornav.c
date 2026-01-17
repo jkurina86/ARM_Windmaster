@@ -11,11 +11,7 @@
 #include "systime.h"
 #include "recorder.h"
 #include "shell.h"
-#include "stm32l4xx_ll_usart.h"
-#include "stm32l4xx_ll_dma.h"
-#include "stm32l4xx_ll_gpio.h"
-#include "stm32l4xx_ll_bus.h"
-#include "stm32l4xx_hal.h"
+#include "usart.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -70,7 +66,7 @@ void vn_init(void)
   flush_rx();
 
   /* Configure USART3 for DMA RX (TX will use polling) */
-  LL_USART_EnableDMAReq_RX(USART3);
+  SET_BIT(huart3.Instance->CR3, USART_CR3_DMAR);
 
   /* Configure DMA RX (channel will be enabled when VectorNav starts) */
   configure_dma_rx(dma_buffer_imu, DMA_BUFFER_SIZE);
@@ -95,7 +91,7 @@ void vn_start(void)
   }
 
   /* Ensure that the DMA channel is disabled before sending command */
-  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
+  __HAL_DMA_DISABLE(huart3.hdmarx);
 
   /* Flush UART RX buffer before sending command */
   flush_rx();
@@ -114,7 +110,7 @@ void vn_start(void)
 
   /* Re-enable DMA to capture binary data stream */
   configure_dma_rx(dma_buffer_imu, DMA_BUFFER_SIZE);
-  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
+  __HAL_DMA_ENABLE(huart3.hdmarx);
 
   imu_running = true;
 
@@ -131,7 +127,7 @@ void vn_stop(void)
 {
   if (imu_running == true) {
     /* Disable DMA to prevent ASCII echo from entering the binary data buffer */
-    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
+    __HAL_DMA_DISABLE(huart3.hdmarx);
 
     /* Flush UART RX buffer before sending command */
     flush_rx();
@@ -167,10 +163,10 @@ bool vn_is_running(void)
   * @note   Processes the DMA buffer to extract complete VN packets,
   *         updating the latest_packet structure with the most recent valid data.
   */
-bool vn_drain_and_queue(void) 
+bool vn_drain_and_queue(void)
 {
   const uint16_t MASK = DMA_BUFFER_SIZE - 1;
-  const uint16_t wr = (DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_3)) & MASK;
+  const uint16_t wr = (DMA_BUFFER_SIZE - __HAL_DMA_GET_COUNTER(huart3.hdmarx)) & MASK;
   uint16_t rd = dma_old_pos_imu;
   uint16_t avail = (wr - rd) & MASK;
   bool packets_drained = false;
@@ -316,20 +312,10 @@ RTC_DateTime_t vn_get_gps_datetime(void)
   * @note   Transmits the command string over USART3 using polling mode.
   *         Suitable for short ASCII configuration commands.
   */
-static void send_command(const char* cmd) 
+static void send_command(const char* cmd)
 {
-  while (*cmd) {
-    /* Wait for TX empty */
-    while (!LL_USART_IsActiveFlag_TXE(USART3));
-
-    /* Send character */
-    LL_USART_TransmitData8(USART3, (uint8_t)*cmd);
-
-    /* Wait for transmission complete */
-    while (!LL_USART_IsActiveFlag_TC(USART3));
-
-    cmd++;
-  }
+  uint16_t len = strlen(cmd);
+  HAL_UART_Transmit(&huart3, (uint8_t*)cmd, len, HAL_MAX_DELAY);
 }
 
 /** @brief  Flush RX FIFO to clear command echoes (USART3)
@@ -337,29 +323,21 @@ static void send_command(const char* cmd)
   * @retval None
   * @note   Reads and discards all available data and clears IDLE if set.
   */
-static void flush_rx(void) 
+static void flush_rx(void)
 {
-  while (LL_USART_IsActiveFlag_RXNE(USART3)) {
-    (void)LL_USART_ReceiveData8(USART3);
+  while (__HAL_UART_GET_FLAG(&huart3, UART_FLAG_RXNE)) {
+    (void)huart3.Instance->RDR;
   }
 
-  if (LL_USART_IsActiveFlag_IDLE(USART3)) {
-    LL_USART_ClearFlag_IDLE(USART3);
+  if (__HAL_UART_GET_FLAG(&huart3, UART_FLAG_IDLE)) {
+    __HAL_UART_CLEAR_IDLEFLAG(&huart3);
   }
 
   /* Clear any lingering UART error flags that can block reception */
-  if (LL_USART_IsActiveFlag_ORE(USART3)) {
-    LL_USART_ClearFlag_ORE(USART3);
-  }
-  if (LL_USART_IsActiveFlag_FE(USART3)) {
-    LL_USART_ClearFlag_FE(USART3);
-  }
-  if (LL_USART_IsActiveFlag_NE(USART3)) {
-    LL_USART_ClearFlag_NE(USART3);
-  }
-  if (LL_USART_IsActiveFlag_PE(USART3)) {
-    LL_USART_ClearFlag_PE(USART3);
-  }
+  __HAL_UART_CLEAR_OREFLAG(&huart3);
+  __HAL_UART_CLEAR_FEFLAG(&huart3);
+  __HAL_UART_CLEAR_NEFLAG(&huart3);
+  __HAL_UART_CLEAR_PEFLAG(&huart3);
 }
 
 /** @brief  Configure DMA RX channel for USART3
@@ -369,14 +347,12 @@ static void flush_rx(void)
   * @note   Disables the DMA channel, configures addresses and length.
   *         Caller must enable the channel when ready to receive.
   */
-static void configure_dma_rx(uint8_t* buffer, uint16_t size) 
+static void configure_dma_rx(uint8_t* buffer, uint16_t size)
 {
-  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
-  LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_3,
-                         LL_USART_DMA_GetRegAddr(USART3, LL_USART_DMA_REG_DATA_RECEIVE),
-                         (uint32_t)buffer,
-                         LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
-  LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, size);
+  __HAL_DMA_DISABLE(huart3.hdmarx);
+  huart3.hdmarx->Instance->CPAR = (uint32_t)&huart3.Instance->RDR;
+  huart3.hdmarx->Instance->CMAR = (uint32_t)buffer;
+  huart3.hdmarx->Instance->CNDTR = size;
 }
 
 /** @brief  Validate a received VN packet
@@ -412,15 +388,15 @@ bool vn_validate_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* pac
   *  @retval None
   *  @note   Sends a command to read the GNSS LLA register and stores the response in vn_gnss_rx_buffer.
   */
-static void vn_read_gnss_lla(void) 
+static void vn_read_gnss_lla(void)
 {
   /* Clear the rx buffer */
   memset(vn_rx_buffer, 0, sizeof(vn_rx_buffer));
 
   /* Configure DMA to receive into vn_rx_buffer */
   configure_dma_rx(vn_rx_buffer, sizeof(vn_rx_buffer));
-  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
-  LL_USART_EnableDMAReq_RX(USART3);
+  __HAL_DMA_ENABLE(huart3.hdmarx);
+  SET_BIT(huart3.Instance->CR3, USART_CR3_DMAR);
 
   /* Send command to read GNSS LLA register */
   send_command("$VNRRG,58*XX\n");
@@ -431,8 +407,8 @@ static void vn_read_gnss_lla(void)
 
   while ((HAL_GetTick() - timeout_start) < TOTAL_TIMEOUT_MS) {
     /* Check for IDLE (line quiet after reception) */
-    if (LL_USART_IsActiveFlag_IDLE(USART3)) {
-      LL_USART_ClearFlag_IDLE(USART3);
+    if (__HAL_UART_GET_FLAG(&huart3, UART_FLAG_IDLE)) {
+      __HAL_UART_CLEAR_IDLEFLAG(&huart3);
       /* Small delay to ensure last byte is transferred */
       HAL_Delay(1);
       break;
@@ -440,10 +416,10 @@ static void vn_read_gnss_lla(void)
   }
 
   /* Stop DMA and get received length */
-  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
-  LL_USART_DisableDMAReq_RX(USART3);
+  __HAL_DMA_DISABLE(huart3.hdmarx);
+  CLEAR_BIT(huart3.Instance->CR3, USART_CR3_DMAR);
 
-  uint16_t received = sizeof(vn_rx_buffer) - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_3);
+  uint16_t received = sizeof(vn_rx_buffer) - __HAL_DMA_GET_COUNTER(huart3.hdmarx);
 
   /* Null-terminate the response */
   if (received < sizeof(vn_rx_buffer)) {
@@ -458,7 +434,7 @@ static void vn_read_gnss_lla(void)
   configure_dma_rx(dma_buffer_imu, DMA_BUFFER_SIZE);
 
   /* Restore DMA state */
-  LL_USART_EnableDMAReq_RX(USART3);
+  SET_BIT(huart3.Instance->CR3, USART_CR3_DMAR);
 
   return;
 }

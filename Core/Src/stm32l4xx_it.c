@@ -25,7 +25,6 @@
 
 #include <string.h>
 #include <stdio.h>
-#include "stm32l4xx_ll_dma.h"
 #include "systime.h"
 #include "windmaster.h"
 #include "vectornav.h"
@@ -124,7 +123,21 @@ static inline void usart_clear_errors(USART_TypeDef *U, volatile uint32_t *ore, 
 extern RTC_HandleTypeDef hrtc;
 extern DMA_HandleTypeDef hdma_spi1_tx;
 extern SPI_HandleTypeDef hspi1;
+extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim4;
+extern DMA_HandleTypeDef hdma_uart4_rx;
+extern DMA_HandleTypeDef hdma_uart4_tx;
+extern DMA_HandleTypeDef hdma_uart5_rx;
+extern DMA_HandleTypeDef hdma_uart5_tx;
+extern DMA_HandleTypeDef hdma_usart2_rx;
+extern DMA_HandleTypeDef hdma_usart2_tx;
+extern DMA_HandleTypeDef hdma_usart3_rx;
+extern DMA_HandleTypeDef hdma_usart3_tx;
+extern UART_HandleTypeDef huart4;
+extern UART_HandleTypeDef huart5;
 extern UART_HandleTypeDef huart1;
+extern UART_HandleTypeDef huart2;
+extern UART_HandleTypeDef huart3;
 /* USER CODE BEGIN EV */
 
 /* External (main.c) print buffer for UART Tests */
@@ -308,12 +321,13 @@ void DMA1_Channel2_IRQHandler(void)
   /* USER CODE BEGIN DMA1_Channel2_IRQn 0 */
 
   /* USER CODE END DMA1_Channel2_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart3_tx);
   /* USER CODE BEGIN DMA1_Channel2_IRQn 1 */
 
   /* VectorNav TX now uses polling; just clear any stray TC flag and disable its interrupt */
-  if (LL_DMA_IsActiveFlag_TC2(DMA1)) {
-    LL_DMA_ClearFlag_TC2(DMA1);
-    LL_DMA_DisableIT_TC(DMA1, LL_DMA_CHANNEL_2);
+  if (__HAL_DMA_GET_FLAG(&hdma_usart3_tx, DMA_FLAG_TC2)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_usart3_tx, DMA_FLAG_TC2);
+    __HAL_DMA_DISABLE_IT(&hdma_usart3_tx, DMA_IT_TC);
   }
 
   /* USER CODE END DMA1_Channel2_IRQn 1 */
@@ -327,14 +341,15 @@ void DMA1_Channel3_IRQHandler(void)
   /* USER CODE BEGIN DMA1_Channel3_IRQn 0 */
 
   /* USER CODE END DMA1_Channel3_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart3_rx);
   /* USER CODE BEGIN DMA1_Channel3_IRQn 1 */
 
   /* Handle DMA1 Channel 3 Transfer Complete (VectorNav RX) */
-  if (LL_DMA_IsActiveFlag_TC3(DMA1)) {
-    LL_DMA_ClearFlag_TC3(DMA1);
+  if (__HAL_DMA_GET_FLAG(&hdma_usart3_rx, DMA_FLAG_TC3)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_usart3_rx, DMA_FLAG_TC3);
   }
-  if (LL_DMA_IsActiveFlag_HT3(DMA1)) {
-    LL_DMA_ClearFlag_HT3(DMA1);
+  if (__HAL_DMA_GET_FLAG(&hdma_usart3_rx, DMA_FLAG_HT3)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_usart3_rx, DMA_FLAG_HT3);
   }
 
   /* USER CODE END DMA1_Channel3_IRQn 1 */
@@ -348,14 +363,15 @@ void DMA1_Channel6_IRQHandler(void)
   /* USER CODE BEGIN DMA1_Channel6_IRQn 0 */
 
   /* USER CODE END DMA1_Channel6_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart2_rx);
   /* USER CODE BEGIN DMA1_Channel6_IRQn 1 */
 
   /* Handle DMA1 Channel 6 Transfer Complete (USART2 RX) */
-  if (LL_DMA_IsActiveFlag_TC6(DMA1)) {
-    LL_DMA_ClearFlag_TC6(DMA1);
+  if (__HAL_DMA_GET_FLAG(&hdma_usart2_rx, DMA_FLAG_TC6)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_usart2_rx, DMA_FLAG_TC6);
   }
-  if (LL_DMA_IsActiveFlag_HT6(DMA1)) {
-    LL_DMA_ClearFlag_HT6(DMA1);
+  if (__HAL_DMA_GET_FLAG(&hdma_usart2_rx, DMA_FLAG_HT6)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_usart2_rx, DMA_FLAG_HT6);
   }
 
   /* USER CODE END DMA1_Channel6_IRQn 1 */
@@ -369,12 +385,13 @@ void DMA1_Channel7_IRQHandler(void)
   /* USER CODE BEGIN DMA1_Channel7_IRQn 0 */
 
   /* USER CODE END DMA1_Channel7_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_usart2_tx);
   /* USER CODE BEGIN DMA1_Channel7_IRQn 1 */
 
   /* Handle DMA1 Channel 7 Transfer Complete (USART2 TX) */
-  if (LL_DMA_IsActiveFlag_TC7(DMA1)) {
-    LL_DMA_ClearFlag_TC7(DMA1);
-    LL_DMA_DisableIT_TC(DMA1, LL_DMA_CHANNEL_7);
+  if (__HAL_DMA_GET_FLAG(&hdma_usart2_tx, DMA_FLAG_TC7)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_usart2_tx, DMA_FLAG_TC7);
+    __HAL_DMA_DISABLE_IT(&hdma_usart2_tx, DMA_IT_TC);
   }
 
   /* USER CODE END DMA1_Channel7_IRQn 1 */
@@ -386,18 +403,15 @@ void DMA1_Channel7_IRQHandler(void)
 void TIM3_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM3_IRQn 0 */
-  
-  /* Note this is for the 1 Hz CLOCKOUT signal from the RTC */
-  /* USER CODE END TIM3_IRQn 0 */
-  /* USER CODE BEGIN TIM3_IRQn 1 */
 
-  /* Trigger PPS event for system time */
-  if (LL_TIM_IsActiveFlag_CC2(TIM3)) {
-    LL_TIM_ClearFlag_CC2(TIM3);
+  /* Trigger PPS event for system time (must check before HAL_TIM_IRQHandler clears flag) */
+  if (__HAL_TIM_GET_FLAG(&htim3, TIM_FLAG_CC2)) {
+    __HAL_TIM_CLEAR_FLAG(&htim3, TIM_FLAG_CC2);
     systime_pps_event();
   }
 
   /* USER CODE END TIM3_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim3);
   /* USER CODE BEGIN TIM3_IRQn 1 */
 
   /* USER CODE END TIM3_IRQn 1 */
@@ -412,6 +426,7 @@ void TIM4_IRQHandler(void)
 
   /* 20 Hz Timer */
   /* USER CODE END TIM4_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim4);
   /* USER CODE BEGIN TIM4_IRQn 1 */
 
   /* USER CODE END TIM4_IRQn 1 */
@@ -452,17 +467,8 @@ void USART2_IRQHandler(void)
 {
   /* USER CODE BEGIN USART2_IRQn 0 */
 
-  /* Handle USART2 RXNE interrupt - drain RX FIFO to prevent ISR re-entry */
-  while (LL_USART_IsActiveFlag_RXNE(USART2)) {
-    (void)LL_USART_ReceiveData8(USART2);  /* Read and discard incoming data (command echo) */
-  }
-
-  /* Clear IDLE flag if set */
-  if (LL_USART_IsActiveFlag_IDLE(USART2)) {
-    LL_USART_ClearFlag_IDLE(USART2);
-  }
-
   /* USER CODE END USART2_IRQn 0 */
+  HAL_UART_IRQHandler(&huart2);
   /* USER CODE BEGIN USART2_IRQn 1 */
 
   /* USER CODE END USART2_IRQn 1 */
@@ -475,17 +481,8 @@ void USART3_IRQHandler(void)
 {
   /* USER CODE BEGIN USART3_IRQn 0 */
 
-  /* Handle USART3 RXNE interrupt - drain RX FIFO to prevent ISR re-entry */
-  while (LL_USART_IsActiveFlag_RXNE(USART3)) {
-    (void)LL_USART_ReceiveData8(USART3);  /* Read and discard incoming data (command echo) */
-  }
-
-  /* Clear IDLE flag if set */
-  if (LL_USART_IsActiveFlag_IDLE(USART3)) {
-    LL_USART_ClearFlag_IDLE(USART3);
-  }
-
   /* USER CODE END USART3_IRQn 0 */
+  HAL_UART_IRQHandler(&huart3);
   /* USER CODE BEGIN USART3_IRQn 1 */
 
   /* USER CODE END USART3_IRQn 1 */
@@ -520,6 +517,7 @@ void UART4_IRQHandler(void)
   }
 
   /* USER CODE END UART4_IRQn 0 */
+  HAL_UART_IRQHandler(&huart4);
   /* USER CODE BEGIN UART4_IRQn 1 */
 
   /* USER CODE END UART4_IRQn 1 */
@@ -540,6 +538,7 @@ void UART5_IRQHandler(void)
   }
 
   /* USER CODE END UART5_IRQn 0 */
+  HAL_UART_IRQHandler(&huart5);
   /* USER CODE BEGIN UART5_IRQn 1 */
 
   /* USER CODE END UART5_IRQn 1 */
@@ -553,6 +552,7 @@ void DMA2_Channel1_IRQHandler(void)
   /* USER CODE BEGIN DMA2_Channel1_IRQn 0 */
 
   /* USER CODE END DMA2_Channel1_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_uart5_tx);
   /* USER CODE BEGIN DMA2_Channel1_IRQn 1 */
 
   /* USER CODE END DMA2_Channel1_IRQn 1 */
@@ -566,14 +566,15 @@ void DMA2_Channel2_IRQHandler(void)
   /* USER CODE BEGIN DMA2_Channel2_IRQn 0 */
 
   /* Handle DMA2 Channel 2 Transfer Complete (WindMaster RX on UART5) */
-  if (LL_DMA_IsActiveFlag_TC2(DMA2)) {
-    LL_DMA_ClearFlag_TC2(DMA2);
+  if (__HAL_DMA_GET_FLAG(&hdma_uart5_rx, DMA_FLAG_TC2)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_uart5_rx, DMA_FLAG_TC2);
   }
-  if (LL_DMA_IsActiveFlag_HT2(DMA2)) {
-    LL_DMA_ClearFlag_HT2(DMA2);
+  if (__HAL_DMA_GET_FLAG(&hdma_uart5_rx, DMA_FLAG_HT2)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_uart5_rx, DMA_FLAG_HT2);
   }
 
   /* USER CODE END DMA2_Channel2_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_uart5_rx);
   /* USER CODE BEGIN DMA2_Channel2_IRQn 1 */
 
   /* USER CODE END DMA2_Channel2_IRQn 1 */
@@ -587,12 +588,13 @@ void DMA2_Channel3_IRQHandler(void)
   /* USER CODE BEGIN DMA2_Channel3_IRQn 0 */
 
   /* Handle UART4 TX DMA transfer complete */
-  if (LL_DMA_IsActiveFlag_TC3(DMA2)) {
-    LL_DMA_ClearFlag_TC3(DMA2);
+  if (__HAL_DMA_GET_FLAG(&hdma_uart4_tx, DMA_FLAG_TC3)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_uart4_tx, DMA_FLAG_TC3);
     telus_tx_complete();
   }
 
   /* USER CODE END DMA2_Channel3_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_uart4_tx);
   /* USER CODE BEGIN DMA2_Channel3_IRQn 1 */
 
   /* USER CODE END DMA2_Channel3_IRQn 1 */
@@ -620,16 +622,17 @@ void DMA2_Channel5_IRQHandler(void)
   /* USER CODE BEGIN DMA2_Channel5_IRQn 0 */
 
   /* Handle DMA interrupts for UART4 RX */
-  if (LL_DMA_IsActiveFlag_TC5(DMA2)) {
-    LL_DMA_ClearFlag_TC5(DMA2);
+  if (__HAL_DMA_GET_FLAG(&hdma_uart4_rx, DMA_FLAG_TC5)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_uart4_rx, DMA_FLAG_TC5);
     /* Transfer complete - buffer is full */
   }
-  if (LL_DMA_IsActiveFlag_HT5(DMA2)) {
-    LL_DMA_ClearFlag_HT5(DMA2);
+  if (__HAL_DMA_GET_FLAG(&hdma_uart4_rx, DMA_FLAG_HT5)) {
+    __HAL_DMA_CLEAR_FLAG(&hdma_uart4_rx, DMA_FLAG_HT5);
     /* Half transfer - buffer is half full */
   }
 
   /* USER CODE END DMA2_Channel5_IRQn 0 */
+  HAL_DMA_IRQHandler(&hdma_uart4_rx);
   /* USER CODE BEGIN DMA2_Channel5_IRQn 1 */
 
   /* USER CODE END DMA2_Channel5_IRQn 1 */
@@ -675,15 +678,15 @@ void rtc_countdown(void) {
   */
 void uart_user_input(USART_TypeDef *Instance, uint8_t *rx_char, char *rx_buffer, uint16_t *rx_index, char *print_buffer, volatile uint8_t *print_flag) {
   /* Check if the RXNE flag is set and the interrupt is enabled */
-  if (LL_USART_IsActiveFlag_RXNE(Instance) && LL_USART_IsEnabledIT_RXNE(Instance)) {
+  if ((Instance->ISR & USART_ISR_RXNE) && (Instance->CR1 & USART_CR1_RXNEIE)) {
     /* Read the received character */
-    *rx_char = LL_USART_ReceiveData8(Instance);
-    
+    *rx_char = (uint8_t)(Instance->RDR & 0xFF);
+
     /* Process the character */
     if (*rx_index < UART_RX_BUFFER_SIZE - 1) { /* Buffer Overflow Check */
       rx_buffer[*rx_index] = *rx_char; /* Store received char */
       (*rx_index)++; /* Increment index */
-      
+
       /* Check for end of line (CR or LF) */
       if (*rx_char == '\r' || *rx_char == '\n') {
         memcpy(print_buffer, rx_buffer, *rx_index);

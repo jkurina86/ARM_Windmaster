@@ -6,7 +6,7 @@
   ******************************************************************************
   */
 #include "systime.h"
-#include "stm32l4xx_ll_tim.h"
+#include "tim.h"
 #include <stdbool.h>
 
 /* Internal State ----------------------------------------------------------- */
@@ -53,7 +53,7 @@ static inline uint32_t month_offset(uint32_t m, bool leap){
 */
 void systime_init(const RTC_DateTime_t* initial_dt) {
     g_epoch_sec = datetime_to_epoch(initial_dt);
-    g_pps_t2 = LL_TIM_GetCounter(TIM2);
+    g_pps_t2 = __HAL_TIM_GET_COUNTER(&htim2);
     g_tps_est = 1000000;
     g_pps_count = 0;
     g_set_pending = false;
@@ -77,7 +77,7 @@ void systime_update(uint32_t new_epoch_sec) {
  */
 void systime_pps_event(void) {
     /* Sample the TIM2 counter */
-    uint32_t t2_now = LL_TIM_GetCounter(TIM2);
+    uint32_t t2_now = __HAL_TIM_GET_COUNTER(&htim2);
     
     /* Calculate ticks since last PPS (handle wraparound) */
     uint32_t delta_t2;
@@ -303,7 +303,7 @@ void systime_snapshot(uint32_t *epoch_seconds, uint16_t *ms) {
         epoch_local = g_epoch_sec;
         pps_t2_local = g_pps_t2;
         tps_est_local = g_tps_est;
-        t2_now = LL_TIM_GetCounter(TIM2);
+        t2_now = __HAL_TIM_GET_COUNTER(&htim2);
     } while (epoch_local != g_epoch_sec);
     
     /* Calculate ticks since last PPS (handle wraparound) */

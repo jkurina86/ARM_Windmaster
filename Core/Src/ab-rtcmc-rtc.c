@@ -9,6 +9,7 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "ab-rtcmc-rtc.h"
+#include "tim.h"
 
 #include <string.h>
 
@@ -139,7 +140,7 @@ RTC_Status_t RTC_Init(void) {
     }
 
     /* Enable TIM3 counter to start capturing RTC CLKOUT */
-    LL_TIM_EnableCounter(TIM3);
+    HAL_TIM_Base_Start(&htim3);
 
     return RTC_OK;
 }
