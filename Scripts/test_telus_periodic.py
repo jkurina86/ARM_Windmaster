@@ -2,6 +2,13 @@
 """
 Periodic Telus data collection script.
 Sends 'idata\r\n' command every 10 minutes and appends data to reports.csv.
+
+Cross-platform: works on Windows (COM ports) and Linux (/dev/ttyUSB*).
+
+Usage:
+    python test_telus_periodic.py              # Interactive port selection menu
+    python test_telus_periodic.py COM6         # Use specific port (Windows)
+    python test_telus_periodic.py /dev/ttyUSB0 # Use specific port (Linux)
 """
 
 import serial
@@ -9,8 +16,8 @@ import time
 import sys
 import os
 from datetime import datetime
+from serial_utils import get_port
 
-PORT = "COM6"
 BAUD = 115200
 TIMEOUT = 5.0
 INTERVAL_MINUTES = 10
@@ -71,8 +78,12 @@ def process_response(response: str, first_run: bool) -> int:
 
 
 def main():
-    print(f"Telus Periodic Data Collection")
-    print(f"Port: {PORT}, Baud: {BAUD}")
+    # Get port from command line or interactive menu
+    port_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    port = get_port(port_arg)
+
+    print(f"\nTelus Periodic Data Collection")
+    print(f"Port: {port}, Baud: {BAUD}")
     print(f"Interval: {INTERVAL_MINUTES} minutes")
     print(f"Output: {OUTPUT_FILE}")
     print("-" * 40)
@@ -81,12 +92,12 @@ def main():
     first_run = not os.path.exists(OUTPUT_FILE)
 
     try:
-        ser = serial.Serial(PORT, BAUD, timeout=TIMEOUT)
+        ser = serial.Serial(port, BAUD, timeout=TIMEOUT)
     except serial.SerialException as e:
         print(f"Error opening port: {e}")
         sys.exit(1)
 
-    print(f"Connected to {PORT}")
+    print(f"Connected to {port}")
     print("Press Ctrl+C to stop\n")
 
     try:

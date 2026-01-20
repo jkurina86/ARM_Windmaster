@@ -2,21 +2,33 @@
 """
 Test script for Telus UART4 communication.
 Sends 'idata\r\n' command and logs the response.
+
+Cross-platform: works on Windows (COM ports) and Linux (/dev/ttyUSB*).
+
+Usage:
+    python test_telus.py              # Interactive port selection menu
+    python test_telus.py COM6         # Use specific port (Windows)
+    python test_telus.py /dev/ttyUSB0 # Use specific port (Linux)
 """
 
 import serial
 import time
 import sys
+from serial_utils import get_port
 
-PORT = "COM6"
 BAUD = 115200
 TIMEOUT = 2.0
 
+
 def main():
-    print(f"Opening {PORT} at {BAUD} baud...")
+    # Get port from command line or interactive menu
+    port_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    port = get_port(port_arg)
+
+    print(f"\nOpening {port} at {BAUD} baud...")
 
     try:
-        ser = serial.Serial(PORT, BAUD, timeout=TIMEOUT)
+        ser = serial.Serial(port, BAUD, timeout=TIMEOUT)
     except serial.SerialException as e:
         print(f"Error opening port: {e}")
         sys.exit(1)
@@ -60,6 +72,7 @@ def main():
 
     ser.close()
     print("Done.")
+
 
 if __name__ == "__main__":
     main()
