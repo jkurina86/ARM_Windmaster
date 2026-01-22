@@ -49,7 +49,6 @@ static inline uint32_t month_offset(uint32_t m, bool leap){
   * @param initial_dt Pointer to RTC_DateTime_t structure with initial date/time
   * @retval None
   * @note Initializes internal state and TIM2 counter reference
-  * @note Converts seconds to milliseconds (no Q32 fixed-point needed)
 */
 void systime_init(const RTC_DateTime_t* initial_dt) {
     g_epoch_sec = datetime_to_epoch(initial_dt);
