@@ -277,7 +277,7 @@ static uint16_t build_csv_response(void) {
 
         /* Format row */
         written = snprintf(ptr, remaining,
-            "%s,%.6f,%.6f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f\r\n",
+            "%s,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\r\n",
             timestamp(report->timestamp_s),
             report->latitude,
             report->longitude,
