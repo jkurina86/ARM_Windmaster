@@ -350,6 +350,11 @@ static void flush_rx(void)
 static void configure_dma_rx(uint8_t* buffer, uint16_t size)
 {
   __HAL_DMA_DISABLE(huart3.hdmarx);
+
+  /* Disable DMA interrupts entirely - we use polling via __HAL_DMA_GET_COUNTER() */
+  __HAL_DMA_DISABLE_IT(huart3.hdmarx, DMA_IT_TC | DMA_IT_HT | DMA_IT_TE);
+  HAL_NVIC_DisableIRQ(DMA1_Channel3_IRQn);
+
   huart3.hdmarx->Instance->CPAR = (uint32_t)&huart3.Instance->RDR;
   huart3.hdmarx->Instance->CMAR = (uint32_t)buffer;
   huart3.hdmarx->Instance->CNDTR = size;

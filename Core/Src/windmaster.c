@@ -38,10 +38,8 @@ static void flush_rx(void);
   */
 void wm_init(void)
 {
-  /* Clear any pending flags and data */
-  __HAL_UART_CLEAR_FLAG(&huart2, UART_FLAG_TC);
-  __HAL_UART_CLEAR_IDLEFLAG(&huart2);
-  (void)huart2.Instance->RDR;  /* Dummy read to clear RX */
+  /* Flush UART RX buffer first (clear any pending data from previous session) */
+  flush_rx();
 
   /* Send '*\r' to enter configuration mode (stops any output) */
   send_command("*\r");
@@ -50,16 +48,22 @@ void wm_init(void)
   HAL_Delay(10);
   flush_rx();
 
-  /* Ensure DMA channel is disabled before configuration */
-  __HAL_DMA_DISABLE(huart2.hdmarx);
-
-  /* Enable USART2 DMA request for RX */
+  /* Configure USART2 for DMA RX (TX will use polling) */
   SET_BIT(huart2.Instance->CR3, USART_CR3_DMAR);
 
-  /* Configure DMA RX addresses (DMA1 Channel 6) */
+  /* Configure DMA RX (channel will be enabled when WindMaster starts) */
+  __HAL_DMA_DISABLE(huart2.hdmarx);
+
+  /* Disable DMA interrupts entirely - we use polling via __HAL_DMA_GET_COUNTER() */
+  __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_TC | DMA_IT_HT | DMA_IT_TE);
+  HAL_NVIC_DisableIRQ(DMA1_Channel6_IRQn);
+
   huart2.hdmarx->Instance->CPAR = (uint32_t)&huart2.Instance->RDR;
   huart2.hdmarx->Instance->CMAR = (uint32_t)dma_buffer_wm;
   huart2.hdmarx->Instance->CNDTR = DMA_BUFFER_SIZE;
+
+  /* Initialize latest packet */
+  memset(&latest_packet, 0, sizeof(WM_Packet_t));
 }
 
 /** @brief  Start the WindMaster
@@ -72,15 +76,26 @@ void wm_start(void)
     return;
   }
 
-  /* Send 'Q\r' to start measurement mode (binary output) and flush the echo */
-  send_command("Q\r");
-  HAL_Delay(1);
+  /* Ensure DMA channel is disabled before sending command */
+  __HAL_DMA_DISABLE(huart2.hdmarx);
+
+  /* Flush UART RX buffer before sending command */
   flush_rx();
 
-  /* Advance the DMA buffer position to skip the <CR><LF> it sends before the first measurement */
+  /* Send 'Q\r' to start measurement mode (binary output) */
+  send_command("Q\r");
+
+  /* Wait for response */
+  HAL_Delay(10);
+
+  /* Flush the ASCII echo response */
+  flush_rx();
+
+  /* Reset DMA buffer position tracking */
+  /* Advance by 2 to skip the <CR><LF> sent before the first measurement */
   dma_old_pos_wm = 2;
 
-  /* Reset DMA (must be done while channel is disabled) */
+  /* Configure DMA RX (must be done while channel is disabled) */
   __HAL_DMA_DISABLE(huart2.hdmarx);
   huart2.hdmarx->Instance->CPAR = (uint32_t)&huart2.Instance->RDR;
   huart2.hdmarx->Instance->CMAR = (uint32_t)dma_buffer_wm;
@@ -214,6 +229,12 @@ static void flush_rx(void)
   if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_IDLE)) {
     __HAL_UART_CLEAR_IDLEFLAG(&huart2);
   }
+
+  /* Clear any lingering UART error flags that can block reception */
+  __HAL_UART_CLEAR_OREFLAG(&huart2);
+  __HAL_UART_CLEAR_FEFLAG(&huart2);
+  __HAL_UART_CLEAR_NEFLAG(&huart2);
+  __HAL_UART_CLEAR_PEFLAG(&huart2);
 }
 
 /** @brief  Validate a received WM packet

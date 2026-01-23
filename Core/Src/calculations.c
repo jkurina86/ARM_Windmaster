@@ -14,7 +14,7 @@
 #include <string.h>
 
 /* Private defines -----------------------------------------------------------*/
-#define MM_TO_M    0.001f
+#define CM_TO_M    0.01f
 #define DEG_TO_RAD 0.01745329252f   /* M_PI / 180 */
 #define RAD_TO_DEG 57.29577951f     /* 180 / M_PI */
 
@@ -130,10 +130,10 @@ void calc_init(void) {
  *         where Omega × R accounts for windmaster velocity due to platform rotation
  */
 void calc_add_sample(const CalcSample_t *sample) {
-    /* Convert platform-frame wind from mm/s to m/s */
-    float u_obs = sample->u * MM_TO_M;
-    float v_obs = sample->v * MM_TO_M;
-    float w_obs = sample->w * MM_TO_M;
+    /* Convert platform-frame wind from cm/s to m/s */
+    float u_obs = sample->u * CM_TO_M;
+    float v_obs = sample->v * CM_TO_M;
+    float w_obs = sample->w * CM_TO_M;
 
     /* Compute angular velocity correction: Omega * R
      * Cross product: [gy*Rz - gz*Ry, gz*Rx - gx*Rz, gx*Ry - gy*Rx]

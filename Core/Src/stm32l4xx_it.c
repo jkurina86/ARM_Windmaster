@@ -340,17 +340,12 @@ void DMA1_Channel3_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA1_Channel3_IRQn 0 */
 
+  /* VectorNav RX uses polling - NVIC interrupt is disabled in vn_init().
+   * This handler should never be called. */
+
   /* USER CODE END DMA1_Channel3_IRQn 0 */
   HAL_DMA_IRQHandler(&hdma_usart3_rx);
   /* USER CODE BEGIN DMA1_Channel3_IRQn 1 */
-
-  /* Handle DMA1 Channel 3 Transfer Complete (VectorNav RX) */
-  if (__HAL_DMA_GET_FLAG(&hdma_usart3_rx, DMA_FLAG_TC3)) {
-    __HAL_DMA_CLEAR_FLAG(&hdma_usart3_rx, DMA_FLAG_TC3);
-  }
-  if (__HAL_DMA_GET_FLAG(&hdma_usart3_rx, DMA_FLAG_HT3)) {
-    __HAL_DMA_CLEAR_FLAG(&hdma_usart3_rx, DMA_FLAG_HT3);
-  }
 
   /* USER CODE END DMA1_Channel3_IRQn 1 */
 }
@@ -362,17 +357,12 @@ void DMA1_Channel6_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA1_Channel6_IRQn 0 */
 
+  /* WindMaster RX uses polling - NVIC interrupt is disabled in wm_init().
+   * This handler should never be called. */
+
   /* USER CODE END DMA1_Channel6_IRQn 0 */
   HAL_DMA_IRQHandler(&hdma_usart2_rx);
   /* USER CODE BEGIN DMA1_Channel6_IRQn 1 */
-
-  /* Handle DMA1 Channel 6 Transfer Complete (USART2 RX) */
-  if (__HAL_DMA_GET_FLAG(&hdma_usart2_rx, DMA_FLAG_TC6)) {
-    __HAL_DMA_CLEAR_FLAG(&hdma_usart2_rx, DMA_FLAG_TC6);
-  }
-  if (__HAL_DMA_GET_FLAG(&hdma_usart2_rx, DMA_FLAG_HT6)) {
-    __HAL_DMA_CLEAR_FLAG(&hdma_usart2_rx, DMA_FLAG_HT6);
-  }
 
   /* USER CODE END DMA1_Channel6_IRQn 1 */
 }
