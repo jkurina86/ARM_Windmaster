@@ -14,6 +14,7 @@
 #include "systime.h"
 #include "stm32l4xx_ll_dma.h"
 #include "stm32l4xx_ll_usart.h"
+#include "stm32l4xx_hal.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -22,6 +23,7 @@
 #define RX_BUFFER_SIZE      64      /* DMA RX buffer size */
 #define TX_BUFFER_SIZE      6144    /* TX buffer for CSV response (~6KB for 30 reports) */
 #define COMMAND_LEN         7       /* Length of "idata\r\n" */
+#define TELUS_TX_TIMEOUT_MS 5000    /* TX timeout in milliseconds */
 
 /* Private types -------------------------------------------------------------*/
 typedef enum {
@@ -35,6 +37,7 @@ static char tx_buffer[TX_BUFFER_SIZE] __attribute__((section(".telus_tx")));
 static volatile TelusState_t state = TELUS_IDLE;
 static uint16_t rx_read_pos = 0;
 static volatile uint16_t tx_length = 0;
+static uint32_t tx_start_tick = 0;  /* HAL tick when TX started (for timeout) */
 
 /* Command to match */
 static const char COMMAND[] = "idata\r\n";
@@ -85,8 +88,11 @@ void telus_init(void) {
  * @brief  Service routine - call from main loop
  */
 void telus_service(void) {
-    /* Don't process if currently sending */
+    /* Check for TX timeout to prevent permanent deadlock */
     if (state == TELUS_SENDING) {
+        if ((HAL_GetTick() - tx_start_tick) > TELUS_TX_TIMEOUT_MS) {
+            telus_tx_error();  /* Force recovery on timeout */
+        }
         return;
     }
 
@@ -115,6 +121,24 @@ void telus_tx_complete(void) {
     calc_clear_reports();
 
     /* Return to idle state */
+    state = TELUS_IDLE;
+}
+
+/**
+ * @brief  DMA TX error handler - recovers from DMA errors or timeout
+ * @retval None
+ * @note   Call from DMA2_Channel3_IRQHandler on error, or from telus_service on timeout.
+ */
+void telus_tx_error(void) {
+    /* Disable TX DMA channel */
+    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_3);
+
+    /* Clear DMA error flags */
+    LL_DMA_ClearFlag_TE3(DMA2);
+    LL_DMA_ClearFlag_TC3(DMA2);
+    LL_DMA_ClearFlag_HT3(DMA2);
+
+    /* Return to idle state (reports not cleared - can retry) */
     state = TELUS_IDLE;
 }
 
@@ -208,10 +232,18 @@ static bool check_for_command(void) {
 
     /* Scan for command in buffer */
     while (avail >= COMMAND_LEN) {
+        /* Bounds check: ensure we won't read past buffer end */
+        if (rd + COMMAND_LEN > RX_BUFFER_SIZE) {
+            /* Not enough contiguous space - restart DMA */
+            restart_dma_rx();
+            return false;
+        }
+
         /* Check if current position matches command */
         bool match = true;
         for (uint16_t i = 0; i < COMMAND_LEN; i++) {
-            if (rx_buffer[rd + i] != COMMAND[i]) {
+            uint16_t idx = rd + i;
+            if (idx >= wr || rx_buffer[idx] != COMMAND[i]) {
                 match = false;
                 break;
             }
@@ -313,6 +345,9 @@ static uint16_t build_csv_response(void) {
 static void start_dma_tx(uint16_t length) {
     /* Store length for reference */
     tx_length = length;
+
+    /* Record start time for timeout detection */
+    tx_start_tick = HAL_GetTick();
 
     /* Set state before enabling DMA */
     state = TELUS_SENDING;

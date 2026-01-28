@@ -34,6 +34,7 @@ uint16_t dma_old_pos_wm = 0;
 /* Private function prototypes -----------------------------------------------*/
 static void send_command(const char* cmd);
 static void flush_rx(void);
+bool wm_validate_packet(const uint8_t* pkt, WM_Packet_t* packet);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -185,10 +186,15 @@ bool wm_drain_and_queue(void)
       memcpy(pkt + head_len, &dma_buffer_wm[0], (size_t)(PACKET_SIZE - head_len));
     }
 
-    /* Update latest_packet (struct matches fixed packet size) */
-    memcpy(&latest_packet, pkt, PACKET_SIZE);
+    /* Validate packet before queueing (XOR checksum check) */
+    if (!wm_validate_packet(pkt, &latest_packet)) {
+      /* Corrupted packet - skip and continue searching */
+      rd = (rd + 1) & MASK;
+      avail--;
+      continue;
+    }
 
-    /* Queue the packet for recording with current system timestamp */
+    /* Queue the validated packet for recording with current system timestamp */
     recorder_queue_wm(&latest_packet);
 
     /* Advance by exactly one packet */

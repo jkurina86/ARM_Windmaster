@@ -45,6 +45,8 @@ static void flush_rx(void);
 static void configure_dma_rx(uint8_t* buffer, uint16_t size);
 static void vn_read_gnss_lla(void);
 static RTC_DateTime_t convert_to_gps_datetime(uint16_t gps_week, double gps_tow);
+static uint16_t vn_calculate_crc16(const uint8_t* data, uint16_t length);
+bool vn_validate_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* packet);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -200,17 +202,15 @@ bool vn_drain_and_queue(void)
       memcpy(tmp + head_len, &dma_buffer_imu[0], (size_t)(PACKET_SIZE - head_len));
     }
 
-    /* Update the latest packet */
-    size_t copy_len;
-    if (sizeof(VN_Packet_t) < PACKET_SIZE) {
-      copy_len = sizeof(VN_Packet_t);
-    } else {
-      copy_len = PACKET_SIZE;
+    /* Validate packet before queueing (CRC16-CCITT check) */
+    if (!vn_validate_packet(tmp, PACKET_SIZE, &latest_packet)) {
+      /* Corrupted packet - skip and continue searching */
+      rd = (rd + 1) & MASK;
+      avail--;
+      continue;
     }
 
-    memcpy(&latest_packet, tmp, copy_len);
-
-    /* Queue the packet for recording with current system timestamp */
+    /* Queue the validated packet for recording with current system timestamp */
     recorder_queue_vn(&latest_packet);
 
     /* Advance by exactly one packet */
@@ -379,30 +379,47 @@ static void configure_dma_rx(uint8_t* buffer, uint16_t size)
   LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, size);
 }
 
+/** @brief  Calculate CRC16-CCITT as specified in VN-300 ICD Section 1.4.3
+  * @param  data: Pointer to data buffer
+  * @param  length: Number of bytes to process
+  * @retval CRC16-CCITT value
+  * @note   Per ICD: checksum is calculated over header and payload (excluding sync byte 0xFA).
+  *         If checksum itself is included in computation, valid packet produces 0x0000.
+  */
+static uint16_t vn_calculate_crc16(const uint8_t* data, uint16_t length)
+{
+  uint16_t crc = 0;
+  for (uint16_t i = 0; i < length; i++) {
+    crc = (uint8_t)(crc >> 8) | (crc << 8);
+    crc ^= data[i];
+    crc ^= (uint8_t)(crc & 0xff) >> 4;
+    crc ^= crc << 12;
+    crc ^= (crc & 0x00ff) << 5;
+  }
+  return crc;
+}
+
 /** @brief  Validate a received VN packet
   * @param  pkt: Pointer to the start of the packet buffer
-  * @param  struct: Pointer to VN_Packet_t structure to populate
+  * @param  length: Length of the buffer
+  * @param  packet: Pointer to VN_Packet_t structure to populate
   * @retval true if the packet is valid, false otherwise
+  * @note   Uses CRC16-CCITT per VN-300 ICD Section 1.4.3
   */
-bool vn_validate_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* packet) 
+bool vn_validate_packet(uint8_t* buffer_start, uint16_t length, VN_Packet_t* packet)
 {
   /* Validate header and length */
   if (length < PACKET_SIZE || buffer_start[0] != 0xFA) {
     return false;
   }
 
-  /* Compute checksum */
-  uint16_t checksum = 0;
-  for (uint8_t i = 0; i < PACKET_SIZE - 2; i++) {
-    checksum += buffer_start[i];
-  }
-
-  /* Validate checksum (Big Endian conversion) */
-  uint16_t received_checksum = (buffer_start[PACKET_SIZE - 2] << 8) | buffer_start[PACKET_SIZE - 1];
-  if (checksum != received_checksum) {
+  /* Compute CRC16-CCITT over bytes 1 to PACKET_SIZE-1 (excluding sync byte 0xFA, including CRC bytes)
+   * Per ICD: if CRC is included in calculation, valid packet produces 0x0000 */
+  uint16_t crc = vn_calculate_crc16(&buffer_start[1], PACKET_SIZE - 1);
+  if (crc != 0x0000) {
     return false;
   }
-  
+
   memcpy(packet, buffer_start, PACKET_SIZE);
   return true;
 }

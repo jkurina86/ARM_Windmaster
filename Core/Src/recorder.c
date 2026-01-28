@@ -29,11 +29,12 @@
 static WM_QueueEntry_t wm_queue[WM_Q_LEN] __attribute__((section(".queue_wm")));
 static VN_QueueEntry_t vn_queue[VN_Q_LEN] __attribute__((section(".queue_vn")));
 
-/* Queue indices */
-static uint8_t wm_q_head = 0;
-static uint8_t wm_q_tail = 0;
-static uint8_t vn_q_head = 0;
-static uint8_t vn_q_tail = 0;
+/* Queue indices - volatile because modified in ISR context (recorder_queue_wm/vn)
+ * and read from main loop (recorder_service) */
+static volatile uint8_t wm_q_head = 0;
+static volatile uint8_t wm_q_tail = 0;
+static volatile uint8_t vn_q_head = 0;
+static volatile uint8_t vn_q_tail = 0;
 
 /* Desynchronization flag - gets set to true to clear the queues after a packet drop */
 static bool desync_active = false; 

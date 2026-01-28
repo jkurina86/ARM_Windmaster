@@ -314,8 +314,12 @@ void systime_snapshot(uint32_t *epoch_seconds, uint16_t *ms) {
         delta_ticks = 0xFFFFFFFF - pps_t2_local + t2_now + 1;
     }
     
-    /* Convert ticks to milliseconds */
-    uint32_t elapsed_ms = delta_ticks / (tps_est_local / 1000U);
+    /* Convert ticks to milliseconds (guard against division by zero) */
+    uint32_t divisor = tps_est_local / 1000U;
+    if (divisor == 0) {
+        divisor = 1000;  /* Fallback to 1 MHz assumption */
+    }
+    uint32_t elapsed_ms = delta_ticks / divisor;
     
     /* Handle second rollover (shouldn't happen normally, but be safe) */
     if (elapsed_ms >= 1000U) {

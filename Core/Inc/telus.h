@@ -21,6 +21,7 @@ extern "C" {
 void telus_init(void);
 void telus_service(void);
 void telus_tx_complete(void);
+void telus_tx_error(void);
 
 #ifdef __cplusplus
 }
