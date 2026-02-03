@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cmake --build:*)"
+      "Bash(cmake --build:*)",
+      "Bash(python:*)",
+      "Bash(py:*)"
     ]
   }
 }
