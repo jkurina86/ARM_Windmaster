@@ -230,6 +230,15 @@ void recorder_queue_vn(const VN_Packet_t *pkt)
   update_queue_max(count, &vn_queue_max);
 }
 
+/** @brief Flush VectorNav queue, discarding all pending entries
+  * @note  Called when WindMaster reports bad data to prevent stale VN entries
+  *        from pairing with a future WM packet.
+  */
+void recorder_flush_vn_queue(void)
+{
+  vn_q_tail = vn_q_head;
+}
+
 /** @brief Service the recorder: process queues and write data to SD card
   * @retval None
   */

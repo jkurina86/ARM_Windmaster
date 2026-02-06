@@ -8,6 +8,7 @@
 
 #include "task_rec.h"
 #include "recorder.h"
+#include "windmaster.h"
 #include "shell.h"
 #include "tasker.h"
 
@@ -109,6 +110,7 @@ void handle_rec_stats(const void *arg)
         shell_print("No packet drops (no data loss)\r\n");
     }
     shell_printf("VectorNav discards: %lu (nearest-neighbor pairing)\r\n", stats.vn_discards);
+    shell_printf("WindMaster bad data: %lu (status/sentinel rejection)\r\n", wm_get_bad_data_count());
 
     if (stats.recording) {
         shell_printf("\r\nCurrent log file: %s\r\n", stats.filename);

@@ -242,7 +242,7 @@ def export_txt(records: List[RecorderData], output_path: Path):
 
             # WindMaster Data
             f.write("WindMaster Data:\n")
-            f.write(f"Wind Speed (UVW): {record.U_axis_speed} {record.V_axis_speed} {record.W_axis_speed} mm/s\n")
+            f.write(f"Wind Speed (UVW): {record.U_axis_speed} {record.V_axis_speed} {record.W_axis_speed} cm/s\n")
             f.write(f"Speed of Sound:   {record.SoS/100:.2f} m/s\n")
 
             # Timing Quality

@@ -28,9 +28,9 @@ extern "C" {
  */
 typedef struct {
     /* From WindMaster (platform frame) */
-    int16_t u;          /* U-axis wind speed (mm/s) */
-    int16_t v;          /* V-axis wind speed (mm/s) */
-    int16_t w;          /* W-axis wind speed (mm/s) */
+    int16_t u;          /* U-axis wind speed (cm/s) */
+    int16_t v;          /* V-axis wind speed (cm/s) */
+    int16_t w;          /* W-axis wind speed (cm/s) */
     /* From VectorNav - attitude (for Euler rotation) */
     float roll;         /* Roll angle (degrees) */
     float pitch;        /* Pitch angle (degrees) */

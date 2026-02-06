@@ -97,6 +97,7 @@ void recorder_debug_queue(void);
 
 void recorder_queue_vn(const VN_Packet_t *pkt);
 void recorder_queue_wm(const WM_Packet_t *pkt);
+void recorder_flush_vn_queue(void);
 
 #ifdef __cplusplus
 }

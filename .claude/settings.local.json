@@ -3,7 +3,9 @@
     "allow": [
       "Bash(cmake --build:*)",
       "Bash(python:*)",
-      "Bash(py:*)"
+      "Bash(py:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)"
     ]
   }
 }

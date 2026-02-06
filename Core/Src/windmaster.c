@@ -16,6 +16,7 @@
 #include "stm32l4xx_ll_gpio.h"
 #include "stm32l4xx_ll_bus.h"
 #include <stdio.h>
+#include <limits.h>
 
 /* Private defines -----------------------------------------------------------*/
 #define DMA_BUFFER_SIZE     1024        /* 1 KB for incoming WM sensor data */
@@ -28,6 +29,7 @@
 /* Private variables ---------------------------------------------------------*/
 static bool wm_running = false;
 static WM_Packet_t latest_packet = {0};
+static uint32_t wm_bad_data = 0;
 uint8_t dma_buffer_wm[DMA_BUFFER_SIZE] __attribute__((section(".dma_buffer_wm")));
 uint16_t dma_old_pos_wm = 0;
 
@@ -35,6 +37,7 @@ uint16_t dma_old_pos_wm = 0;
 static void send_command(const char* cmd);
 static void flush_rx(void);
 bool wm_validate_packet(const uint8_t* pkt, WM_Packet_t* packet);
+static bool wm_data_valid(const WM_Packet_t* packet);
 
 /* Public functions ----------------------------------------------------------*/
 
@@ -194,6 +197,15 @@ bool wm_drain_and_queue(void)
       continue;
     }
 
+    /* Check data quality (status word + sentinel values) */
+    if (!wm_data_valid(&latest_packet)) {
+      /* Structurally valid but bad data — skip full packet, flush stale VN data */
+      recorder_flush_vn_queue();
+      rd = (rd + PACKET_SIZE) & MASK;
+      avail = (wr - rd) & MASK;
+      continue;
+    }
+
     /* Queue the validated packet for recording with current system timestamp */
     recorder_queue_wm(&latest_packet);
 
@@ -276,4 +288,40 @@ bool wm_validate_packet(const uint8_t* pkt, WM_Packet_t* packet) {
   /* Populate the structure */
   memcpy(packet, pkt, PACKET_SIZE);
   return true;
+}
+
+/** @brief Check data quality of a structurally valid WM packet
+  * @param packet: Pointer to validated WM_Packet_t
+  * @retval true if data is usable, false if sample error or sentinel values
+  * @note   Status byte 0x01-0x09 = sample failure / HW error (reject).
+  *         0x00 = OK, 0x0A = gain at max (results OK), 0x0B = retries used (accept).
+  *         U/V/W/SoS == INT16_MAX (32767) = sentinel for invalid measurement (reject).
+  *         Temp is NOT checked — no PRT sensor installed, always reads INT16_MAX.
+  */
+static bool wm_data_valid(const WM_Packet_t* packet) {
+  uint8_t status_low = packet->status & 0xFF;
+
+  /* Reject status codes 0x01–0x09 (sample failures and hardware errors) */
+  if (status_low >= 0x01 && status_low <= 0x09) {
+    wm_bad_data++;
+    return false;
+  }
+
+  /* Reject sentinel values indicating invalid measurement */
+  if (packet->U_axis_speed == INT16_MAX ||
+      packet->V_axis_speed == INT16_MAX ||
+      packet->W_axis_speed == INT16_MAX ||
+      packet->SoS == INT16_MAX) {
+    wm_bad_data++;
+    return false;
+  }
+
+  return true;
+}
+
+/** @brief Get count of rejected bad-data packets
+  * @retval Number of structurally valid packets rejected for bad data
+  */
+uint32_t wm_get_bad_data_count(void) {
+  return wm_bad_data;
 }
