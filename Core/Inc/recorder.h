@@ -33,35 +33,29 @@ typedef struct {
   VN_Packet_t vn_packet;
 } VN_QueueEntry_t;
 
-/* Combined data structure for recording both WindMaster and VectorNav data */
+/* Combined data structure for recording both WindMaster and VectorNav data.
+ * Embeds raw packed sensor packets to preserve all fields (status, checksums,
+ * analog inputs, VN headers) without field-by-field extraction.
+ *
+ * Layout (128 bytes):
+ *   Offset  Size  Field
+ *     0       4   magic_number
+ *     4       4   log_index
+ *     8       4   epoch_seconds
+ *    12       2   ms
+ *    14       2   timing_offset_ms
+ *    16      23   wm_packet (packed)
+ *    39      86   vn_packet (packed)
+ *   125       3   trailing padding (compiler-inserted, struct align 4)
+ */
 typedef struct {
   uint32_t magic_number;
   uint32_t log_index;
   uint32_t epoch_seconds;
   uint16_t ms;
-  uint64_t timegps;
-  float yaw;
-  float pitch;
-  float roll;
-  float gyro_x;
-  float gyro_y;
-  float gyro_z;
-  double latitude;
-  double longitude;
-  double altitude;
-  float vel_n;
-  float vel_e;
-  float vel_d;
-  float acc_x;
-  float acc_y;
-  float acc_z;
-  int16_t U_axis_speed;
-  int16_t V_axis_speed;
-  int16_t W_axis_speed;
-  int16_t SoS;
-  int16_t Temp;
   int16_t timing_offset_ms;   // WM timestamp - VN timestamp (signed, +/- 25ms max)
-  uint8_t footer_padding[18]; // Reduced from 20 to maintain 128 bytes total
+  WM_Packet_t wm_packet;
+  VN_Packet_t vn_packet;
 } Recorder_Data_t;
 
 _Static_assert(sizeof(Recorder_Data_t) == 128, "Recorder_Data_t must remain 128 bytes");

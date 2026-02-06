@@ -29,12 +29,43 @@ from datetime import datetime, timezone, timedelta
 
 
 class RecorderData(NamedTuple):
-    """128-byte record structure matching Recorder_Data_t"""
+    """128-byte record structure matching Recorder_Data_t with embedded raw packets.
+
+    Layout (128 bytes):
+      Offset  Size  Field
+        0       4   magic_number
+        4       4   log_index
+        8       4   epoch_seconds
+       12       2   ms
+       14       2   timing_offset_ms
+       16      23   WM_Packet_t (packed)
+       39      86   VN_Packet_t (packed)
+      125       3   trailing padding (ignored)
+    """
+    # Header (16 bytes)
     magic_number: int       # uint32_t
     log_index: int          # uint32_t
     epoch_seconds: int      # uint32_t (seconds since 2000-01-01)
     ms: int                 # uint16_t (milliseconds fraction within current second)
-    timegps: int            # uint64_t (nanoseconds since GPS epoch 1980-01-01)
+    timing_offset_ms: int   # int16_t (WM timestamp - VN timestamp, signed ±25ms max)
+    # WM_Packet_t (23 bytes, packed)
+    wm_header: int          # uint16_t (0xB4B4)
+    wm_status: int          # uint16_t
+    U_axis_speed: int       # int16_t (cm/s)
+    V_axis_speed: int       # int16_t (cm/s)
+    W_axis_speed: int       # int16_t (cm/s)
+    SoS: int                # int16_t (Speed of Sound)
+    A1: int                 # int16_t (Analog Input 1)
+    A2: int                 # int16_t (Analog Input 2)
+    A3: int                 # int16_t (Analog Input 3)
+    A4: int                 # int16_t (Analog Input 4)
+    Temp: int               # int16_t (Temperature from PRT)
+    wm_checksum: int        # uint8_t (XOR checksum)
+    # VN_Packet_t (86 bytes, packed)
+    vn_sync: int            # uint8_t (0xFA)
+    vn_group: int           # uint8_t
+    vn_types: int           # uint16_t
+    timegps: int            # uint64_t (nanoseconds since GPS epoch 1980-01-06)
     yaw: float              # float
     pitch: float            # float
     roll: float             # float
@@ -50,22 +81,17 @@ class RecorderData(NamedTuple):
     acc_x: float            # float
     acc_y: float            # float
     acc_z: float            # float
-    U_axis_speed: int       # int16_t
-    V_axis_speed: int       # int16_t
-    W_axis_speed: int       # int16_t
-    SoS: int                # uint16_t (Speed of Sound, 0.01 m/s)
-    Temp: int               # int16_t (Temperature)
-    timing_offset_ms: int   # int16_t (WM timestamp - VN timestamp, signed ±10ms max)
-    # footer_padding[18] - not parsed
+    vn_checksum: int        # uint16_t (CRC16)
 
 
 # Struct format string (Little Endian):
-# I = uint32_t, Q = uint64_t, f = float, d = double, h = int16_t, H = uint16_t
-# Format: magic(I) index(I) epoch(I) ms(H) pad(2x) timegps(Q) YPR(3f) Gyro(3f) Lat/Lon/Alt(3d) Vel(3f) Acc(3f)
-#         WindMaster(U,V,W = 3h, SoS = H, Temp = h, timing_offset = h)
-RECORD_FORMAT = '<IIIHxxQffffffdddffffffhhhHhh'
+# Header: magic(I) index(I) epoch(I) ms(H) timing_offset(h) = 16 bytes
+# WM_Packet_t: header(H) status(H) U,V,W(3h) SoS(h) A1-A4(4h) Temp(h) checksum(B) = 23 bytes
+# VN_Packet_t: sync(B) group(B) types(H) timegps(Q) YPR(3f) Gyro(3f) LLA(3d) Vel(3f) Acc(3f) CRC(H) = 86 bytes
+# Total parsed: 125 bytes (3 bytes trailing padding ignored)
+RECORD_FORMAT = '<IIIHh' + 'HHhhhhhhhhhB' + 'BBHQffffffdddffffffH'
 RECORD_SIZE = 128
-PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # 108 bytes parsed (20 bytes padding at end)
+PARSED_SIZE = struct.calcsize(RECORD_FORMAT)  # 125 bytes parsed (3 bytes padding at end)
 
 MAGIC_NUMBER = 0xFACEFACE
 # GPS epoch is January 6, 1980 (not January 1!)
@@ -227,7 +253,8 @@ def export_txt(records: List[RecorderData], output_path: Path):
 
             # VectorNav (IMU/GPS) Data
             f.write("VectorNav Data:\n")
-            f.write(f"GPS Time (RAW): {record.timegps} ns since 1980-01-01\n")
+            f.write(f"Sync: 0x{record.vn_sync:02X}  Group: 0x{record.vn_group:02X}  Types: 0x{record.vn_types:04X}  CRC: 0x{record.vn_checksum:04X}\n")
+            f.write(f"GPS Time (RAW): {record.timegps} ns since 1980-01-06\n")
             f.write(
                 "GPS Time: "
                 f"{gps_components['year']:04d}-{gps_components['month']:02d}-{gps_components['day']:02d} "
@@ -242,8 +269,10 @@ def export_txt(records: List[RecorderData], output_path: Path):
 
             # WindMaster Data
             f.write("WindMaster Data:\n")
+            f.write(f"Header: 0x{record.wm_header:04X}  Status: 0x{record.wm_status:04X}  Checksum: 0x{record.wm_checksum:02X}\n")
             f.write(f"Wind Speed (UVW): {record.U_axis_speed} {record.V_axis_speed} {record.W_axis_speed} cm/s\n")
             f.write(f"Speed of Sound:   {record.SoS/100:.2f} m/s\n")
+            f.write(f"Analog Inputs:    A1={record.A1} A2={record.A2} A3={record.A3} A4={record.A4}\n")
 
             # Timing Quality
             f.write(f"Timing Offset: {record.timing_offset_ms:+4d} ms\n")

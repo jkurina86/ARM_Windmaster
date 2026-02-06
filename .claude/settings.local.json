@@ -5,7 +5,8 @@
       "Bash(python:*)",
       "Bash(py:*)",
       "Bash(find:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(python3:*)"
     ]
   }
 }

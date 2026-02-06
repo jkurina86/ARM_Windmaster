@@ -479,7 +479,7 @@ static void flip_buffers(void) {
   * @retval Recorder_Data_t: Filled recorder data structure
   */
 Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntry_t *wm_entry, int16_t timing_offset_ms) {
-  /* Create and zero-initialize a new record */
+  /* Create and zero-initialize a new record (zeros trailing padding) */
   Recorder_Data_t record;
   memset(&record, 0, sizeof(Recorder_Data_t));
 
@@ -490,33 +490,10 @@ Recorder_Data_t build_record(const VN_QueueEntry_t *vn_entry, const WM_QueueEntr
   /* Use the systime snapshot for timestamping */
   systime_snapshot(&record.epoch_seconds, &record.ms);
 
-  /* Extract pointers to the VN and WM data packets */
-  const VN_Packet_t *vn_data = &vn_entry->vn_packet;
-  const WM_Packet_t *wm_data = &wm_entry->wm_packet;
-
-  /* Copy data from VN and WM packets into the record */
-  record.timegps = vn_data->timegps;
-  record.yaw = vn_data->yaw;
-  record.pitch = vn_data->pitch;
-  record.roll = vn_data->roll;
-  record.gyro_x = vn_data->gyro_x;
-  record.gyro_y = vn_data->gyro_y;
-  record.gyro_z = vn_data->gyro_z;
-  record.latitude = vn_data->latitude;
-  record.longitude = vn_data->longitude;
-  record.altitude = vn_data->altitude;
-  record.vel_n = vn_data->vel_n;
-  record.vel_e = vn_data->vel_e;
-  record.vel_d = vn_data->vel_d;
-  record.acc_x = vn_data->acc_x;
-  record.acc_y = vn_data->acc_y;
-  record.acc_z = vn_data->acc_z;
-  record.U_axis_speed = wm_data->U_axis_speed;
-  record.V_axis_speed = wm_data->V_axis_speed;
-  record.W_axis_speed = wm_data->W_axis_speed;
-  record.SoS = wm_data->SoS;
-  record.Temp = wm_data->Temp;
+  /* Timing offset and raw sensor packets */
   record.timing_offset_ms = timing_offset_ms;
+  record.wm_packet = wm_entry->wm_packet;
+  record.vn_packet = vn_entry->vn_packet;
 
   return record;
 }
