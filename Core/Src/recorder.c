@@ -25,6 +25,9 @@
 #define LOG_ROLLOVER_BYTES (20 * 1024 * 1024) /* 20MB per log file to limit corruption window and transfer size */
 #define RECORDER_MAGIC_NUMBER 0xFACEFACE
 
+#define BAD_BUF_SIZE     1024
+#define BAD_BUF_CAPACITY (BAD_BUF_SIZE / sizeof(WM_BadPacket_t))  /* 32 entries (32 bytes each) */
+
 /* Queue Structures, location in RAM2 specified in linker script */
 static WM_QueueEntry_t wm_queue[WM_Q_LEN] __attribute__((section(".queue_wm")));
 static VN_QueueEntry_t vn_queue[VN_Q_LEN] __attribute__((section(".queue_vn")));
@@ -52,6 +55,17 @@ static bool flush_pending = false;                   /* True if flush in progres
 static bool recording = false;
 static uint32_t record_index = 0;
 
+/* Bad packet double-buffered recording state */
+static WM_BadPacket_t bad_buf_a[BAD_BUF_CAPACITY] __attribute__((section(".bad_wm_bufs")));
+static WM_BadPacket_t bad_buf_b[BAD_BUF_CAPACITY] __attribute__((section(".bad_wm_bufs")));
+static WM_BadPacket_t *bad_active_buf = bad_buf_a;
+static WM_BadPacket_t *bad_flush_buf  = bad_buf_b;
+static uint8_t bad_active_idx = 0;
+static bool bad_flush_pending = false;
+static bool bad_recording = false;
+static FIL bad_fil;
+static char bad_filename[128];
+
 /* File handle for log file */
 static FIL log_fil;
 char filename[128];
@@ -74,6 +88,8 @@ static void clear_queues(void);
 static void handle_write_error(FRESULT res, const char* where);
 static bool open_log_file(void);
 static bool write_with_rollover(const uint8_t* data, uint32_t len, const char* where);
+static bool open_bad_packet_file(void);
+static void bad_flip_buffers(void);
 
 /* Helper functions for code simplification */
 static inline uint64_t timestamp_to_ms(uint32_t s, uint16_t ms);
@@ -109,6 +125,13 @@ void recorder_init(void) {
   /* Clear buffers */
   memset(record_buffer_a, 0, RECORD_BUFFER_SIZE);
   memset(record_buffer_b, 0, RECORD_BUFFER_SIZE);
+
+  /* Initialize bad packet recorder state */
+  bad_active_buf = bad_buf_a;
+  bad_flush_buf  = bad_buf_b;
+  bad_active_idx = 0;
+  bad_flush_pending = false;
+  bad_recording = false;
 }
 
 /** @brief Start the recorder: initialize and begin recording
@@ -136,6 +159,19 @@ void recorder_start(void) {
     return;
   }
 
+  /* Open bad packet file (non-fatal if it fails) */
+  bad_active_buf = bad_buf_a;
+  bad_flush_buf  = bad_buf_b;
+  bad_active_idx = 0;
+  bad_flush_pending = false;
+  if (open_bad_packet_file()) {
+    bad_recording = true;
+    shell_printf("[REC] Bad packet file: %s\r\n", bad_filename);
+  } else {
+    bad_recording = false;
+    shell_printf("[REC] WARN: Could not open bad packet file, continuing without.\r\n");
+  }
+
   /* Start the sensors */
   shell_printf("[REC] Starting sensors...\r\n");
   wm_start();
@@ -153,6 +189,20 @@ void recorder_stop(void) {
   /* Stop the sensors */
   wm_stop();
   vn_stop();
+
+  /* Flush and close bad packet file */
+  if (bad_recording) {
+    UINT bw;
+    if (bad_flush_pending) {
+      f_write(&bad_fil, bad_flush_buf, BAD_BUF_SIZE, &bw);
+    }
+    if (bad_active_idx > 0) {
+      f_write(&bad_fil, bad_active_buf, bad_active_idx * sizeof(WM_BadPacket_t), &bw);
+    }
+    f_sync(&bad_fil);
+    f_close(&bad_fil);
+    bad_recording = false;
+  }
 
   /* Flush any remaining data in the active buffer */
   if (active_buf_index > 0) {
@@ -311,6 +361,41 @@ void recorder_service(void) {
       break;
     }
   }
+}
+
+void recorder_queue_bad_wm(const WM_Packet_t *pkt)
+{
+  if (!bad_recording) return;
+
+  WM_BadPacket_t *entry = &bad_active_buf[bad_active_idx];
+  systime_snapshot(&entry->timestamp_s, &entry->timestamp_ms);
+  entry->wm_packet = *pkt;
+  bad_active_idx++;
+
+  if (bad_active_idx >= BAD_BUF_CAPACITY) {
+    if (bad_flush_pending) {
+      /* Flush still in progress — drop buffer, reset */
+      bad_active_idx = 0;
+      return;
+    }
+    bad_flip_buffers();
+  }
+}
+
+void bad_packet_recorder_service(void)
+{
+  if (!bad_recording || !bad_flush_pending) return;
+
+  UINT bw;
+  FRESULT res = f_write(&bad_fil, bad_flush_buf, BAD_BUF_SIZE, &bw);
+  if (res != FR_OK || bw != BAD_BUF_SIZE) {
+    shell_printf("[REC] WARN: Bad packet write failed (code %d)\r\n", res);
+    f_close(&bad_fil);
+    bad_recording = false;
+    return;
+  }
+  f_sync(&bad_fil);
+  bad_flush_pending = false;
 }
   
 /* Helper functions -----------------------------------------------*/
@@ -631,6 +716,31 @@ static bool write_with_rollover(const uint8_t* data, uint32_t len, const char* w
 
   /* Persist periodically to reduce corruption risk */
   f_sync(&log_fil);
+  return true;
+}
+
+static void bad_flip_buffers(void)
+{
+  WM_BadPacket_t *tmp = bad_active_buf;
+  bad_active_buf = bad_flush_buf;
+  bad_flush_buf = tmp;
+  bad_active_idx = 0;
+  bad_flush_pending = true;
+}
+
+static bool open_bad_packet_file(void)
+{
+  uint32_t full_epoch_sec = time_s_now();
+  RTC_DateTime_t dt = epoch_to_datetime(full_epoch_sec);
+  snprintf(bad_filename, sizeof(bad_filename), "BAD_%04d-%02d-%02d-%02d-%02d-%02d.bin",
+           dt.years + 2000, dt.months, dt.days,
+           dt.hours, dt.minutes, dt.seconds);
+
+  FRESULT fr = f_open(&bad_fil, bad_filename, FA_WRITE | FA_CREATE_ALWAYS);
+  if (fr != FR_OK) {
+    shell_printf("[REC] ERROR: Bad packet file open failed (code %d)\r\n", fr);
+    return false;
+  }
   return true;
 }
 

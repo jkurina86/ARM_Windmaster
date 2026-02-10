@@ -33,6 +33,12 @@ typedef struct {
   VN_Packet_t vn_packet;
 } VN_QueueEntry_t;
 
+typedef struct {
+  uint32_t timestamp_s;     // Seconds from systime_snapshot()
+  uint16_t timestamp_ms;    // Milliseconds from systime_snapshot() (0-999)
+  WM_Packet_t wm_packet;
+} WM_BadPacket_t;
+
 /* Combined data structure for recording both WindMaster and VectorNav data */
 typedef struct {
   uint32_t magic_number;
@@ -98,6 +104,9 @@ void recorder_debug_queue(void);
 void recorder_queue_vn(const VN_Packet_t *pkt);
 void recorder_queue_wm(const WM_Packet_t *pkt);
 void recorder_flush_vn_queue(void);
+
+void recorder_queue_bad_wm(const WM_Packet_t *pkt);
+void bad_packet_recorder_service(void);
 
 #ifdef __cplusplus
 }

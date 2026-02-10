@@ -190,6 +190,9 @@ int main(void)
     /* Process Telus commands */
     telus_service();
 
+    /* Process any bad WindMaster packets */
+    bad_packet_recorder_service();
+
     /* Shell parsing, processing, and task scheduling */
     shell_task();
 

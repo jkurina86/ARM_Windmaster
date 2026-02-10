@@ -52,6 +52,7 @@ MEMORY
   RAM2_QUEUES (xrw) : ORIGIN = 0x10002800,   LENGTH = 2K
   RAM2_CALC   (xrw) : ORIGIN = 0x10003000,   LENGTH = 3K
   RAM2_TELUS  (xrw) : ORIGIN = 0x10003C00,   LENGTH = 6K
+  RAM2_BAD   (xrw) : ORIGIN = 0x10005400,   LENGTH = 2K
   FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1024K
 }
 
@@ -211,6 +212,11 @@ SECTIONS
   {
     *(.telus_tx)
   } >RAM2_TELUS
+
+  .bad_wm_bufs :
+  {
+    *(.bad_wm_bufs)
+  } >RAM2_BAD
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack :

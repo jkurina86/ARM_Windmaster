@@ -191,7 +191,10 @@ bool wm_drain_and_queue(void)
 
     /* Validate packet before queueing (XOR checksum check) */
     if (!wm_validate_packet(pkt, &latest_packet)) {
-      /* Corrupted packet - skip and continue searching */
+      /* Corrupted packet - record raw bytes and skip */
+      WM_Packet_t bad_pkt;
+      memcpy(&bad_pkt, pkt, PACKET_SIZE);
+      recorder_queue_bad_wm(&bad_pkt);
       rd = (rd + 1) & MASK;
       avail--;
       continue;
@@ -199,7 +202,8 @@ bool wm_drain_and_queue(void)
 
     /* Check data quality (status word + sentinel values) */
     if (!wm_data_valid(&latest_packet)) {
-      /* Structurally valid but bad data — skip full packet, flush stale VN data */
+      /* Structurally valid but bad data — record and skip, flush stale VN data */
+      recorder_queue_bad_wm(&latest_packet);
       recorder_flush_vn_queue();
       rd = (rd + PACKET_SIZE) & MASK;
       avail = (wr - rd) & MASK;
