@@ -79,9 +79,9 @@ typedef struct {
   uint32_t active_buffer_records; // Records in active buffer
   uint32_t active_buffer_capacity;// Active buffer capacity (32)
   uint8_t wm_queue_count;         // Current WindMaster queue entries
-  uint8_t wm_queue_capacity;      // WindMaster queue capacity (64)
+  uint8_t wm_queue_capacity;      // WindMaster queue capacity (16)
   uint8_t vn_queue_count;         // Current VectorNav queue entries
-  uint8_t vn_queue_capacity;      // VectorNav queue capacity (64)
+  uint8_t vn_queue_capacity;      // VectorNav queue capacity (16)
   uint8_t wm_queue_max;           // Max WM queue depth seen
   uint8_t vn_queue_max;           // Max VN queue depth seen
   uint32_t wm_drops;              // WindMaster queue overflow drops
