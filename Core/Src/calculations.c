@@ -3,7 +3,7 @@
   * @file    calculations.c
   * @brief   Report calculations module
   * @note    Uses running sums updated per-sample. Non-blocking finalization.
-  * 
+  *
   ******************************************************************************
   */
 
@@ -229,7 +229,7 @@ void calc_add_sample(const CalcSample_t *sample) {
 /**
  * @brief  Service function to finalize ready calculations
  * @note   State machine allows yields between stages
- * 
+ *
  */
 void calc_service(void) {
     switch (state) {
@@ -379,7 +379,7 @@ static void finalize_direction(void) {
  * @brief  Finalize gust statistics
  * @note   Computes mean and stddev of maximum 3-sec window
  */
-static void finalize_gust(void) {     
+static void finalize_gust(void) {
     results.gust_mean = accum_ready.gust_max_mean;
 
     /* Compute stddev of the 3-sec window that had maximum mean */
@@ -465,7 +465,7 @@ int16_t calc_get_report_head(void) {
 
 /**
  * @brief  Clear all reports from buffer
- * @note   Called after CSV transmission to Telus system
+ * @note   Called after CSV transmission to TELOS system
  */
 void calc_clear_reports(void) {
     report_count = 0;

@@ -43,7 +43,7 @@
 #include "ab-rtcmc-rtc.h"
 #include "systime.h"
 #include "stm32l4xx_ll_dma.h"
-#include "telus.h"
+#include "telos.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -154,7 +154,7 @@ int main(void)
   init_uart_interrupts();
   wm_init();
   vn_init();
-  telus_init();
+  telos_init();
 
   /* Allow time for SD card power and UART lines to stabilize and clear any flags */
   HAL_Delay(100);
@@ -187,8 +187,8 @@ int main(void)
     /* Process calculation buffers, returns fast if no buffer ready */
     calc_service();
 
-    /* Process Telus commands */
-    telus_service();
+    /* Process TELOS commands */
+    telos_service();
 
     /* Process any bad WindMaster packets */
     bad_packet_recorder_service();
@@ -267,7 +267,7 @@ void SystemClock_Config(void)
   * @param seconds: Number of seconds to snooze
   * @retval None
   */
-void snooze (uint16_t seconds) 
+void snooze (uint16_t seconds)
 {
   /* Check if the recorder is running */
   if (recorder_is_recording()) {
@@ -329,7 +329,7 @@ void snooze (uint16_t seconds)
   * @param None
   * @retval None
   */
-void wakeup (void) 
+void wakeup (void)
 {
   /* After waking from Stop Mode 2, system clock is MSI (4 MHz default) */
   /* Need to reconfigure system clock to PLL */
@@ -448,7 +448,7 @@ void systime_startup(void)
   *  @retval None
   *  @note  Reads GPS week and time-of-week from VectorNav and updates system time
   */
-void gps_time_sync(void) 
+void gps_time_sync(void)
 {
   /* Get current GPS date/time from VectorNav (derived from GNSS week + TOW) */
   RTC_DateTime_t gps_dt = {0};

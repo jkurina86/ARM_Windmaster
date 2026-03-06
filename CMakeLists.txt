@@ -61,7 +61,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/task_rtc.c
     Core/Src/task_rec.c
     Core/Src/calculations.c
-    Core/Src/telus.c
+    Core/Src/telos.c
 )
 
 # Add include paths

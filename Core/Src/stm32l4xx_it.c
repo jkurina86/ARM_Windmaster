@@ -29,7 +29,7 @@
 #include "systime.h"
 #include "windmaster.h"
 #include "vectornav.h"
-#include "telus.h"
+#include "telos.h"
 
 /* USER CODE END Includes */
 
@@ -73,11 +73,11 @@
 
 volatile uint32_t uart4_idle_isr_count = 0;
 volatile uint32_t uart5_idle_isr_count = 0;
-volatile uint32_t uart4_err_ore = 0; 
-volatile uint32_t uart4_err_fe = 0; 
+volatile uint32_t uart4_err_ore = 0;
+volatile uint32_t uart4_err_fe = 0;
 volatile uint32_t uart4_err_ne = 0;
-volatile uint32_t uart5_err_ore = 0; 
-volatile uint32_t uart5_err_fe = 0; 
+volatile uint32_t uart5_err_ore = 0;
+volatile uint32_t uart5_err_fe = 0;
 volatile uint32_t uart5_err_ne = 0;
 
 /* USER CODE END PV */
@@ -101,19 +101,19 @@ static inline void usart_clear_idle(USART_TypeDef *U) {
 static inline void usart_clear_errors(USART_TypeDef *U, volatile uint32_t *ore, volatile uint32_t *fe, volatile uint32_t *ne) {
   uint32_t isr = U->ISR;
 
-  if (isr & USART_ISR_ORE) { 
-    (*ore)++; 
-    (void)U->RDR; 
+  if (isr & USART_ISR_ORE) {
+    (*ore)++;
+    (void)U->RDR;
   }   // RDR read clears ORE
-  
-  if (isr & USART_ISR_FE)  { 
-    (*fe)++; 
+
+  if (isr & USART_ISR_FE)  {
+    (*fe)++;
   }
-  
-  if (isr & USART_ISR_NE)  { 
-    (*ne)++; 
+
+  if (isr & USART_ISR_NE)  {
+    (*ne)++;
   }
-  
+
   /* Clear error flags */
   U->ICR = USART_ICR_FECF | USART_ICR_NCF | USART_ICR_ORECF;
 }
@@ -386,7 +386,7 @@ void DMA1_Channel7_IRQHandler(void)
 void TIM3_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM3_IRQn 0 */
-  
+
   /* Note this is for the 1 Hz CLOCKOUT signal from the RTC */
   /* USER CODE END TIM3_IRQn 0 */
   /* USER CODE BEGIN TIM3_IRQn 1 */
@@ -589,7 +589,7 @@ void DMA2_Channel3_IRQHandler(void)
   /* Handle UART4 TX DMA transfer complete */
   if (LL_DMA_IsActiveFlag_TC3(DMA2)) {
     LL_DMA_ClearFlag_TC3(DMA2);
-    telus_tx_complete();
+    telos_tx_complete();
   }
 
   /* USER CODE END DMA2_Channel3_IRQn 0 */
@@ -651,7 +651,7 @@ void rtc_countdown(void) {
   if (countdown_completed) {
       return;
   }
-    
+
   rtc_sec_counter++;
   if (rtc_sec_counter <= 10) {
     char buffer[64];
@@ -678,12 +678,12 @@ void uart_user_input(USART_TypeDef *Instance, uint8_t *rx_char, char *rx_buffer,
   if (LL_USART_IsActiveFlag_RXNE(Instance) && LL_USART_IsEnabledIT_RXNE(Instance)) {
     /* Read the received character */
     *rx_char = LL_USART_ReceiveData8(Instance);
-    
+
     /* Process the character */
     if (*rx_index < UART_RX_BUFFER_SIZE - 1) { /* Buffer Overflow Check */
       rx_buffer[*rx_index] = *rx_char; /* Store received char */
       (*rx_index)++; /* Increment index */
-      
+
       /* Check for end of line (CR or LF) */
       if (*rx_char == '\r' || *rx_char == '\n') {
         memcpy(print_buffer, rx_buffer, *rx_index);

@@ -51,7 +51,7 @@ MEMORY
   RAM2_REC    (xrw)    : ORIGIN = 0x10000800,   LENGTH = 8K
   RAM2_QUEUES (xrw) : ORIGIN = 0x10002800,   LENGTH = 2K
   RAM2_CALC   (xrw) : ORIGIN = 0x10003000,   LENGTH = 3K
-  RAM2_TELUS  (xrw) : ORIGIN = 0x10003C00,   LENGTH = 6K
+  RAM2_TELOS  (xrw) : ORIGIN = 0x10003C00,   LENGTH = 6K
   RAM2_BAD   (xrw) : ORIGIN = 0x10005400,   LENGTH = 2K
   FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1024K
 }
@@ -208,10 +208,10 @@ SECTIONS
     *(.calc_reports)
   } >RAM2_CALC
 
-  .telus_tx :
+  .telos_tx :
   {
-    *(.telus_tx)
-  } >RAM2_TELUS
+    *(.telos_tx)
+  } >RAM2_TELOS
 
   .bad_wm_bufs :
   {

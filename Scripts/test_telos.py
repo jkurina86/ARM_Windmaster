@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-Test script for Telus UART4 communication.
+Test script for TELOS UART4 communication.
 Sends 'idata\r\n' command and logs the response.
 
 Cross-platform: works on Windows (COM ports) and Linux (/dev/ttyUSB*).
 
 Usage:
-    python test_telus.py              # Interactive port selection menu
-    python test_telus.py COM6         # Use specific port (Windows)
-    python test_telus.py /dev/ttyUSB0 # Use specific port (Linux)
+    python test_telos.py              # Interactive port selection menu
+    python test_telos.py COM6         # Use specific port (Windows)
+    python test_telos.py /dev/ttyUSB0 # Use specific port (Linux)
 """
 
-import serial
-import time
 import sys
+import time
+
+import serial
 from serial_utils import get_port
 
 BAUD = 115200
@@ -63,7 +64,7 @@ def main():
         print(f"\nReceived {len(response)} bytes:")
         print("-" * 40)
         try:
-            print(response.decode('ascii'))
+            print(response.decode("ascii"))
         except:
             print(response)
         print("-" * 40)

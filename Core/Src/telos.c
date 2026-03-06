@@ -1,15 +1,15 @@
 /**
   ******************************************************************************
-  * @file    telus.c
-  * @brief   Telus communication module implementation
-  * @note    Handles UART4 communication with Telus system.
+  * @file    telos.c
+  * @brief   TELOS communication module implementation
+  * @note    Handles UART4 communication with TELOS system.
   *          Receives "idata\r\n" commands and responds with CSV-formatted
   *          CalcReport data via DMA.
   ******************************************************************************
   */
 
 /* Includes ------------------------------------------------------------------*/
-#include "telus.h"
+#include "telos.h"
 #include "calculations.h"
 #include "systime.h"
 #include "stm32l4xx_ll_dma.h"
@@ -23,18 +23,18 @@
 #define RX_BUFFER_SIZE      64      /* DMA RX buffer size */
 #define TX_BUFFER_SIZE      6144    /* TX buffer for CSV response (~6KB for 30 reports) */
 #define COMMAND_LEN         7       /* Length of "idata\r\n" */
-#define TELUS_TX_TIMEOUT_MS 5000    /* TX timeout in milliseconds */
+#define TELOS_TX_TIMEOUT_MS 5000    /* TX timeout in milliseconds */
 
 /* Private types -------------------------------------------------------------*/
 typedef enum {
-    TELUS_IDLE,         /* Waiting for command */
-    TELUS_SENDING       /* DMA transfer in progress */
-} TelusState_t;
+    TELOS_IDLE,         /* Waiting for command */
+    TELOS_SENDING       /* DMA transfer in progress */
+} TelosState_t;
 
 /* Private variables ---------------------------------------------------------*/
 static uint8_t rx_buffer[RX_BUFFER_SIZE];
-static char tx_buffer[TX_BUFFER_SIZE] __attribute__((section(".telus_tx")));
-static volatile TelusState_t state = TELUS_IDLE;
+static char tx_buffer[TX_BUFFER_SIZE] __attribute__((section(".telos_tx")));
+static volatile TelosState_t state = TELOS_IDLE;
 static uint16_t rx_read_pos = 0;
 static volatile uint16_t tx_length = 0;
 static uint32_t tx_start_tick = 0;  /* HAL tick when TX started (for timeout) */
@@ -57,15 +57,15 @@ static void start_dma_tx(uint16_t length);
 /* Public functions ----------------------------------------------------------*/
 
 /**
- * @brief  Initialize Telus module
+ * @brief  Initialize TELOS module
  */
-void telus_init(void) {
+void telos_init(void) {
     /* Clear buffers */
     memset(rx_buffer, 0, RX_BUFFER_SIZE);
     memset(tx_buffer, 0, TX_BUFFER_SIZE);
 
     /* Reset state */
-    state = TELUS_IDLE;
+    state = TELOS_IDLE;
     rx_read_pos = 0;
     tx_length = 0;
 
@@ -84,14 +84,16 @@ void telus_init(void) {
     LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_5);
 }
 
+
+
 /**
  * @brief  Service routine - call from main loop
  */
-void telus_service(void) {
+void telos_service(void) {
     /* Check for TX timeout to prevent permanent deadlock */
-    if (state == TELUS_SENDING) {
-        if ((HAL_GetTick() - tx_start_tick) > TELUS_TX_TIMEOUT_MS) {
-            telus_tx_error();  /* Force recovery on timeout */
+    if (state == TELOS_SENDING) {
+        if ((HAL_GetTick() - tx_start_tick) > TELOS_TX_TIMEOUT_MS) {
+            telos_tx_error();  /* Force recovery on timeout */
         }
         return;
     }
@@ -113,7 +115,7 @@ void telus_service(void) {
  * @retval None
  * @note   Called when UART4 TX DMA transfer is complete.
  */
-void telus_tx_complete(void) {
+void telos_tx_complete(void) {
     /* Disable TX DMA channel */
     LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_3);
 
@@ -121,15 +123,15 @@ void telus_tx_complete(void) {
     calc_clear_reports();
 
     /* Return to idle state */
-    state = TELUS_IDLE;
+    state = TELOS_IDLE;
 }
 
 /**
  * @brief  DMA TX error handler - recovers from DMA errors or timeout
  * @retval None
- * @note   Call from DMA2_Channel3_IRQHandler on error, or from telus_service on timeout.
+ * @note   Call from DMA2_Channel3_IRQHandler on error, or from telos_service on timeout.
  */
-void telus_tx_error(void) {
+void telos_tx_error(void) {
     /* Disable TX DMA channel */
     LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_3);
 
@@ -139,7 +141,7 @@ void telus_tx_error(void) {
     LL_DMA_ClearFlag_HT3(DMA2);
 
     /* Return to idle state (reports not cleared - can retry) */
-    state = TELUS_IDLE;
+    state = TELOS_IDLE;
 }
 
 /* Private functions ---------------------------------------------------------*/
@@ -350,7 +352,7 @@ static void start_dma_tx(uint16_t length) {
     tx_start_tick = HAL_GetTick();
 
     /* Set state before enabling DMA */
-    state = TELUS_SENDING;
+    state = TELOS_SENDING;
 
     /* Disable channel before reconfiguration */
     LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_3);

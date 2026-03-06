@@ -1,14 +1,14 @@
 /**
   ******************************************************************************
-  * @file    telus.h
-  * @brief   Telus communication module header
-  * @note    Handles UART4 communication with Telus system.
+  * @file    telos.h
+  * @brief   TELOS communication module header
+  * @note    Handles UART4 communication with TELOS system.
   *          Receives "idata\r\n" commands and responds with CSV-formatted
   *          CalcReport data via DMA.
   ******************************************************************************
   */
-#ifndef __TELUS_H__
-#define __TELUS_H__
+#ifndef __TELOS_H__
+#define __TELOS_H__
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,12 +18,12 @@ extern "C" {
 
 /* Public function prototypes ------------------------------------------------*/
 
-void telus_init(void);
-void telus_service(void);
-void telus_tx_complete(void);
-void telus_tx_error(void);
+void telos_init(void);
+void telos_service(void);
+void telos_tx_complete(void);
+void telos_tx_error(void);
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* __TELUS_H__ */
+#endif /* __TELOS_H__ */

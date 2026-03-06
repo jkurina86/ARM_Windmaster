@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """
-Periodic Telus data collection script.
+Periodic TELOS data collection script.
 Sends 'idata\r\n' command every 10 minutes and appends data to reports.csv.
 
 Cross-platform: works on Windows (COM ports) and Linux (/dev/ttyUSB*).
 
 Usage:
-    python test_telus_periodic.py              # Interactive port selection menu
-    python test_telus_periodic.py COM6         # Use specific port (Windows)
-    python test_telus_periodic.py /dev/ttyUSB0 # Use specific port (Linux)
+    python test_telos_periodic.py              # Interactive port selection menu
+    python test_telos_periodic.py COM6         # Use specific port (Windows)
+    python test_telos_periodic.py /dev/ttyUSB0 # Use specific port (Linux)
 """
 
-import serial
-import time
-import sys
 import os
+import sys
+import time
 from datetime import datetime
+
+import serial
 from serial_utils import get_port
 
 BAUD = 115200
@@ -46,7 +47,7 @@ def send_command(ser: serial.Serial) -> str:
             break
         response += more
 
-    return response.decode('ascii', errors='replace')
+    return response.decode("ascii", errors="replace")
 
 
 def process_response(response: str, first_run: bool) -> int:
@@ -54,7 +55,7 @@ def process_response(response: str, first_run: bool) -> int:
     Process CSV response and write to file.
     Returns number of data rows written.
     """
-    lines = response.strip().split('\n')
+    lines = response.strip().split("\n")
     if not lines:
         return 0
 
@@ -64,15 +65,15 @@ def process_response(response: str, first_run: bool) -> int:
 
     if first_run:
         # Create new file with header and data
-        with open(OUTPUT_FILE, 'w') as f:
-            f.write(header + '\n')
+        with open(OUTPUT_FILE, "w") as f:
+            f.write(header + "\n")
             for line in data_lines:
-                f.write(line + '\n')
+                f.write(line + "\n")
     else:
         # Append only data rows
-        with open(OUTPUT_FILE, 'a') as f:
+        with open(OUTPUT_FILE, "a") as f:
             for line in data_lines:
-                f.write(line + '\n')
+                f.write(line + "\n")
 
     return len(data_lines)
 
@@ -82,7 +83,7 @@ def main():
     port_arg = sys.argv[1] if len(sys.argv) > 1 else None
     port = get_port(port_arg)
 
-    print(f"\nTelus Periodic Data Collection")
+    print(f"\TELOS Periodic Data Collection")
     print(f"Port: {port}, Baud: {BAUD}")
     print(f"Interval: {INTERVAL_MINUTES} minutes")
     print(f"Output: {OUTPUT_FILE}")
@@ -109,7 +110,9 @@ def main():
 
             if response:
                 rows = process_response(response, first_run)
-                print(f"[{timestamp}] Received {len(response)} bytes, wrote {rows} data rows")
+                print(
+                    f"[{timestamp}] Received {len(response)} bytes, wrote {rows} data rows"
+                )
                 first_run = False  # After first successful write, always append
             else:
                 print(f"[{timestamp}] No response received")
