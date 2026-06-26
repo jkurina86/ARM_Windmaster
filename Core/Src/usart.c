@@ -565,9 +565,9 @@ void init_uart_interrupts(void)
   LL_USART_ClearFlag_FE(UART5);   /* Framing Error Flag */
 
   /* Enable The UART RXNE interrupts */
-  LL_USART_EnableIT_RXNE(USART2);
+  LL_USART_EnableIT_RXNE(UART5);
   LL_USART_EnableIT_RXNE(USART3);
-  /* Note: UART4 and UART5 use DMA with IDLE interrupt, not RXNE */
+  /* Note: UART4 uses DMA with IDLE interrupt, not RXNE */
 }
 
 /* USER CODE END 1 */

@@ -452,11 +452,6 @@ void USART2_IRQHandler(void)
 {
   /* USER CODE BEGIN USART2_IRQn 0 */
 
-  /* Handle USART2 RXNE interrupt - drain RX FIFO to prevent ISR re-entry */
-  while (LL_USART_IsActiveFlag_RXNE(USART2)) {
-    (void)LL_USART_ReceiveData8(USART2);  /* Read and discard incoming data (command echo) */
-  }
-
   /* Clear IDLE flag if set */
   if (LL_USART_IsActiveFlag_IDLE(USART2)) {
     LL_USART_ClearFlag_IDLE(USART2);
@@ -531,6 +526,17 @@ void UART4_IRQHandler(void)
 void UART5_IRQHandler(void)
 {
   /* USER CODE BEGIN UART5_IRQn 0 */
+
+  /* Handle UART5 RXNE interrupt - drain RX FIFO to prevent ISR re-entry */
+  while (LL_USART_IsActiveFlag_RXNE(UART5)) {
+    (void)LL_USART_ReceiveData8(UART5);  /* Read and discard incoming data (command echo) */
+  }
+
+  /* Clear IDLE flag if set */
+  if (LL_USART_IsActiveFlag_IDLE(UART5)) {
+    LL_USART_ClearFlag_IDLE(UART5);
+  }
+
   uint32_t isr = UART5->ISR;
 
   /* Check for errors */
