@@ -368,14 +368,14 @@ void DMA1_Channel7_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA1_Channel7_IRQn 0 */
 
-  /* USER CODE END DMA1_Channel7_IRQn 0 */
-  /* USER CODE BEGIN DMA1_Channel7_IRQn 1 */
-
-  /* Handle DMA1 Channel 7 Transfer Complete (USART2 TX) */
+  /* Handle USART2 TX DMA transfer complete (TELOS) */
   if (LL_DMA_IsActiveFlag_TC7(DMA1)) {
     LL_DMA_ClearFlag_TC7(DMA1);
-    LL_DMA_DisableIT_TC(DMA1, LL_DMA_CHANNEL_7);
+    telos_tx_complete();
   }
+
+  /* USER CODE END DMA1_Channel7_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Channel7_IRQn 1 */
 
   /* USER CODE END DMA1_Channel7_IRQn 1 */
 }
@@ -455,6 +455,13 @@ void USART2_IRQHandler(void)
   /* Clear IDLE flag if set */
   if (LL_USART_IsActiveFlag_IDLE(USART2)) {
     LL_USART_ClearFlag_IDLE(USART2);
+  }
+
+  /* Check for and clear UART errors */
+  uint32_t isr2 = USART2->ISR;
+  if (isr2 & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE)) {
+    if (isr2 & USART_ISR_ORE) { (void)USART2->RDR; }
+    USART2->ICR = USART_ICR_FECF | USART_ICR_NCF | USART_ICR_ORECF;
   }
 
   /* USER CODE END USART2_IRQn 0 */
@@ -592,10 +599,10 @@ void DMA2_Channel3_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Channel3_IRQn 0 */
 
-  /* Handle UART4 TX DMA transfer complete */
+  /* DMA2 Channel 3 was previously used for UART4 TELOS TX.
+   * TELOS has moved to USART2 (DMA1 Channel 7). Clear any stray flags. */
   if (LL_DMA_IsActiveFlag_TC3(DMA2)) {
     LL_DMA_ClearFlag_TC3(DMA2);
-    telos_tx_complete();
   }
 
   /* USER CODE END DMA2_Channel3_IRQn 0 */

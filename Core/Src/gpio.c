@@ -131,7 +131,7 @@ void transceiver_init(void) {
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
 
-  /* Set PB1 GPIO high - ENABLE pin for USART2 RS232 transceiver */
+  /* Set PB1 GPIO high - ENABLE pin for USART2 RS232 transceiver (TELOS) */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
 
   /* Set PB2_GPIO high to supply power to the SD card */
