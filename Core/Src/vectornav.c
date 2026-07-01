@@ -259,6 +259,78 @@ bool vn_gps_fix(void)
   return fix_acquired;
 }
 
+/** @brief  Check if the VectorNav is alive and responding on USART3
+  * @param  None
+  * @retval true if the VN responded with a valid Register 1 (Model Number) read, false otherwise
+  * @note   Sends a Read Register 1 command ($VNRRG,1) using checksum bypass and
+  *         checks for a response beginning with "$VNRRG,1,". Uses the same DMA
+  *         receive path as vn_read_gnss_lla(). Lightweight connectivity check
+  *         that does not require a GNSS fix.
+  */
+bool vn_check_alive(void)
+{
+  if (imu_running) {
+    shell_printf("[VN] Error: Cannot check alive while IMU is running.\r\n");
+    return false;
+  }
+
+  /* Clear the rx buffer */
+  memset(vn_rx_buffer, 0, sizeof(vn_rx_buffer));
+
+  /* Disable USART3 IRQ — the ISR drains RXNE and clears IDLE, which would
+     steal bytes from DMA and break response-complete detection */
+  NVIC_DisableIRQ(USART3_IRQn);
+
+  /* Configure DMA to receive into vn_rx_buffer */
+  configure_dma_rx(vn_rx_buffer, sizeof(vn_rx_buffer));
+  LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
+  LL_USART_EnableDMAReq_RX(USART3);
+
+  /* Send command to read Register 1 (Model Number) using checksum bypass */
+  send_command("$VNRRG,1*XX\n");
+
+  /* Wait for response to complete (IDLE flag or timeout) */
+  uint32_t timeout_start = HAL_GetTick();
+  const uint32_t TOTAL_TIMEOUT_MS = 200;
+
+  while ((HAL_GetTick() - timeout_start) < TOTAL_TIMEOUT_MS) {
+    if (LL_USART_IsActiveFlag_IDLE(USART3)) {
+      LL_USART_ClearFlag_IDLE(USART3);
+      HAL_Delay(1);
+      break;
+    }
+  }
+
+  /* Stop DMA and get received length */
+  LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
+  LL_USART_DisableDMAReq_RX(USART3);
+
+  uint16_t received = sizeof(vn_rx_buffer) - LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_3);
+
+  /* Null-terminate the response */
+  if (received < sizeof(vn_rx_buffer)) {
+    vn_rx_buffer[received] = '\0';
+  } else {
+    vn_rx_buffer[sizeof(vn_rx_buffer) - 1] = '\0';
+  }
+
+  flush_rx();
+
+  /* Restore DMA to point back to dma_buffer_imu for normal operation */
+  configure_dma_rx(dma_buffer_imu, DMA_BUFFER_SIZE);
+  LL_USART_EnableDMAReq_RX(USART3);
+
+  /* Re-enable USART3 IRQ */
+  NVIC_EnableIRQ(USART3_IRQn);
+
+  /* A valid response contains "$VNRRG,01," (register number is zero-padded) */
+  if (received > 0 && strstr((char*)vn_rx_buffer, "$VNRRG,01,") != NULL) {
+    return true;
+  }
+
+  return false;
+}
+
 /** @brief  Get the current GPS date and time from the VectorNav
   * @param  None
   * @retval RTC_DateTime_t structure with GPS date and time
@@ -434,6 +506,10 @@ static void vn_read_gnss_lla(void)
   /* Clear the rx buffer */
   memset(vn_rx_buffer, 0, sizeof(vn_rx_buffer));
 
+  /* Disable USART3 IRQ — the ISR drains RXNE and clears IDLE, which would
+     steal bytes from DMA and break response-complete detection */
+  NVIC_DisableIRQ(USART3_IRQn);
+
   /* Configure DMA to receive into vn_rx_buffer */
   configure_dma_rx(vn_rx_buffer, sizeof(vn_rx_buffer));
   LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
@@ -476,6 +552,9 @@ static void vn_read_gnss_lla(void)
 
   /* Restore DMA state */
   LL_USART_EnableDMAReq_RX(USART3);
+
+  /* Re-enable USART3 IRQ */
+  NVIC_EnableIRQ(USART3_IRQn);
 
   return;
 }

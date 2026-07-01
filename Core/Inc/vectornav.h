@@ -60,7 +60,7 @@ bool vn_is_running(void);
 bool vn_drain_and_queue(void);
 bool vn_gps_fix(void);
 RTC_DateTime_t vn_get_gps_datetime(void);
-
+bool vn_check_alive(void);
 
 #ifdef __cplusplus
 }

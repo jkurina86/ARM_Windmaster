@@ -151,6 +151,11 @@ int main(void)
   tasker_init();
   calc_init();
   transceiver_init();
+
+  /* Allow the VectorNav to boot up after its power/transceiver enable is asserted */
+  shell_printf("Waiting 3s for VectorNav to boot...\r\n");
+  HAL_Delay(3000);
+
   init_uart_interrupts();
   wm_init();
   vn_init();
@@ -158,6 +163,24 @@ int main(void)
 
   /* Allow time for SD card power and UART lines to stabilize and clear any flags */
   HAL_Delay(100);
+
+  /* Verify the VectorNav is alive before attempting a blocking GPS fix loop */
+  shell_printf("Checking VectorNav connectivity...");
+  if (!vn_check_alive()) {
+    shell_printf("FAILED!\r\n");
+    shell_printf("ERROR: VectorNav not responding. Check USART3 wiring and PB0 enable.\r\n");
+    Error_Handler();
+  }
+  shell_printf("OK\r\n");
+
+  /* Verify the WindMaster is alive before entering the main loop */
+  shell_printf("Checking WindMaster connectivity...");
+  if (!wm_check_alive()) {
+    shell_printf("FAILED!\r\n");
+    shell_printf("WARNING: WindMaster not responding. Check UART5 wiring and PB4/PB5 enable.\r\n");
+  } else {
+    shell_printf("OK\r\n");
+  }
 
   /* Get a GPS fix */
   shell_printf("Getting GPS fix...");

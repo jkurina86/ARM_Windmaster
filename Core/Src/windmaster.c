@@ -329,3 +329,81 @@ static bool wm_data_valid(const WM_Packet_t* packet) {
 uint32_t wm_get_bad_data_count(void) {
   return wm_bad_data;
 }
+
+/** @brief  Check if the WindMaster is alive and responding on UART5
+  * @param  None
+  * @retval true if the WM responded to a D3 (request config) command, false otherwise
+  * @note   Sends 'D3\r' to request current configuration and polls for a response.
+  *         The WM must already be in config mode (wm_init() sends '*\r').
+  *         Disables the UART5 IRQ during the exchange since the ISR drains
+  *         RXNE and would steal the response bytes.
+  */
+bool wm_check_alive(void)
+{
+  if (wm_running) {
+    return true;
+  }
+
+  /* Disable UART5 IRQ — the ISR drains RXNE, stealing response bytes */
+  NVIC_DisableIRQ(UART5_IRQn);
+
+  /* Disable DMA RX request — wm_init() enables it but leaves the DMA channel
+     disabled, which can block RXNE from being set. We're polling RX directly. */
+  LL_USART_DisableDMAReq_RX(UART5);
+
+  /* Clear any pending flags, errors, and data */
+  LL_USART_ClearFlag_TC(UART5);
+  LL_USART_ClearFlag_IDLE(UART5);
+  LL_USART_ClearFlag_ORE(UART5);
+  LL_USART_ClearFlag_FE(UART5);
+  LL_USART_ClearFlag_NE(UART5);
+  LL_USART_ClearFlag_PE(UART5);
+  (void)UART5->RDR;
+
+  /* Send 'D3\r' to request current configuration (works in config mode) */
+  send_command("D3\r");
+
+  /* Poll for response bytes with timeout */
+  char rx_buf[128];
+  uint16_t rx_idx = 0;
+  uint32_t timeout_start = HAL_GetTick();
+  const uint32_t TIMEOUT_MS = 200;
+
+  while ((HAL_GetTick() - timeout_start) < TIMEOUT_MS && rx_idx < (sizeof(rx_buf) - 1)) {
+    if (LL_USART_IsActiveFlag_RXNE(UART5)) {
+      rx_buf[rx_idx] = (char)LL_USART_ReceiveData8(UART5);
+      rx_idx++;
+      /* Reset timeout to wait for next byte */
+      timeout_start = HAL_GetTick();
+    }
+    if (LL_USART_IsActiveFlag_IDLE(UART5)) {
+      LL_USART_ClearFlag_IDLE(UART5);
+      HAL_Delay(1);
+      break;
+    }
+  }
+  rx_buf[rx_idx] = '\0';
+
+  /* Re-enable DMA RX request and UART5 IRQ */
+  LL_USART_EnableDMAReq_RX(UART5);
+  NVIC_EnableIRQ(UART5_IRQn);
+
+  /* Diagnostic: print what we received */
+  shell_printf("\r\n[WM DBG] received=%u bytes\r\n", rx_idx);
+  if (rx_idx > 0) {
+    shell_printf("[WM DBG] hex:");
+    uint16_t show = rx_idx < 64 ? rx_idx : 64;
+    for (uint16_t i = 0; i < show; i++) {
+      shell_printf(" %02X", (uint8_t)rx_buf[i]);
+    }
+    shell_printf("\r\n");
+    shell_printf("[WM DBG] str: %.80s\r\n", rx_buf);
+  }
+
+  /* A valid D3 response starts with 'M' (e.g. "M2,U1,O1,L1,P1,B4,...") */
+  if (rx_idx > 0 && rx_buf[0] == 'M') {
+    return true;
+  }
+
+  return false;
+}

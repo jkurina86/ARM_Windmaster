@@ -43,5 +43,6 @@ void wm_stop(void);
 bool wm_is_running(void);
 bool wm_drain_and_queue(void);
 uint32_t wm_get_bad_data_count(void);
+bool wm_check_alive(void);
 
 #endif /* INC_WINDMASTER_H_ */
