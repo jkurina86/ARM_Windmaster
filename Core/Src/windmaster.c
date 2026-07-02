@@ -3,7 +3,7 @@
   * @file    windmaster.c
   * @brief   WindMaster functions
   * @note    Implements WindMaster Mode 10 - Binary UVW Long protocol
-  *          UART5 @ 57600 baud, 23-byte packets at 20Hz
+  *          UART4 @ 57600 baud, 23-byte packets at 20Hz
   ******************************************************************************
 */
 
@@ -25,6 +25,10 @@
 #define HEADER_VALUE        0xB4        /* 0xB4 for M10, 0xB2 for M8 */
 #define DATA_SIZE           18          /* 18 Bytes for M10, 8 Bytes for M8 */
 #define CHECKSUM_SIZE       1
+#define WM_UART             UART4
+#define WM_UART_IRQn        UART4_IRQn
+#define WM_DMA              DMA2
+#define WM_DMA_RX_CHANNEL   LL_DMA_CHANNEL_5
 
 /* Private variables ---------------------------------------------------------*/
 static bool wm_running = false;
@@ -45,17 +49,17 @@ static bool wm_data_valid(const WM_Packet_t* packet);
   * @param  None
   * @retval None
   * @note   Sends '*\r' command to enter configuration mode, flushes echo,
-  *         then configures DMA2 Ch2 for RX (but doesn't enable it).
+  *         then configures DMA2 Ch5 for RX (but doesn't enable it).
   *         Leaves the WindMaster in config mode (not sending binary data).
   *         Call wm_start() to begin measurement mode and enable DMA.
-  *         UART5 RX uses DMA2 Channel 2.
-  *         UART5 @ 57600 baud, 8-N-1.
+  *         UART4 RX uses DMA2 Channel 5.
+  *         UART4 @ 57600 baud, 8-N-1.
   */
 void wm_init(void) {
   /* Clear any pending flags and data */
-  LL_USART_ClearFlag_TC(UART5);
-  LL_USART_ClearFlag_IDLE(UART5);
-  (void)UART5->RDR;  // Dummy read to clear RX
+  LL_USART_ClearFlag_TC(WM_UART);
+  LL_USART_ClearFlag_IDLE(WM_UART);
+  (void)WM_UART->RDR;  // Dummy read to clear RX
 
   /* Send '*\r' to enter configuration mode (stops any output) */
   send_command("*\r");
@@ -66,18 +70,18 @@ void wm_init(void) {
 
   /* Now configure DMA for binary data reception */
   /* Ensure DMA channel is disabled before touching counters/addresses */
-  LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_2);
+  LL_DMA_DisableChannel(WM_DMA, WM_DMA_RX_CHANNEL);
 
-  /* Enable UART5 DMA request for RX */
-  LL_USART_EnableDMAReq_RX(UART5);
+  /* Enable UART4 DMA request for RX */
+  LL_USART_EnableDMAReq_RX(WM_UART);
 
-  /* Configure DMA RX addresses (DMA2 Channel 2) */
-  LL_DMA_ConfigAddresses(DMA2, LL_DMA_CHANNEL_2,
-                        LL_USART_DMA_GetRegAddr(UART5, LL_USART_DMA_REG_DATA_RECEIVE),
+  /* Configure DMA RX addresses (DMA2 Channel 5) */
+  LL_DMA_ConfigAddresses(WM_DMA, WM_DMA_RX_CHANNEL,
+                        LL_USART_DMA_GetRegAddr(WM_UART, LL_USART_DMA_REG_DATA_RECEIVE),
                         (uint32_t)dma_buffer_wm,
                         LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 
-  LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_2, DMA_BUFFER_SIZE);
+  LL_DMA_SetDataLength(WM_DMA, WM_DMA_RX_CHANNEL, DMA_BUFFER_SIZE);
 }
 
 /** @brief  Start the WindMaster
@@ -102,11 +106,11 @@ void wm_start(void) {
   dma_old_pos_wm = 2;
 
   /* Reset DMA transfer counter (must be done while channel is disabled) */
-  LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_2);
-  LL_DMA_SetDataLength(DMA2, LL_DMA_CHANNEL_2, DMA_BUFFER_SIZE);
+  LL_DMA_DisableChannel(WM_DMA, WM_DMA_RX_CHANNEL);
+  LL_DMA_SetDataLength(WM_DMA, WM_DMA_RX_CHANNEL, DMA_BUFFER_SIZE);
 
   /* Enable DMA for binary data reception */
-  LL_DMA_EnableChannel(DMA2, LL_DMA_CHANNEL_2);
+  LL_DMA_EnableChannel(WM_DMA, WM_DMA_RX_CHANNEL);
 
   /* Initialize latest data */
   memset(&latest_packet, 0, sizeof(WM_Packet_t));
@@ -124,7 +128,7 @@ void wm_start(void) {
 void wm_stop(void) {
   if (wm_running) {
     /* Disable DMA to prevent binary data corruption during command */
-    LL_DMA_DisableChannel(DMA2, LL_DMA_CHANNEL_2);
+    LL_DMA_DisableChannel(WM_DMA, WM_DMA_RX_CHANNEL);
 
     /* Send '*\r' to enter configuration mode (stops output) */
     send_command("*\r");
@@ -155,7 +159,7 @@ bool wm_is_running(void) {
 bool wm_drain_and_queue(void)
 {
   const uint16_t MASK = DMA_BUFFER_SIZE - 1;
-  const uint16_t wr = (DMA_BUFFER_SIZE - LL_DMA_GetDataLength(DMA2, LL_DMA_CHANNEL_2)) & MASK;
+  const uint16_t wr = (DMA_BUFFER_SIZE - LL_DMA_GetDataLength(WM_DMA, WM_DMA_RX_CHANNEL)) & MASK;
   uint16_t rd = dma_old_pos_wm;
   uint16_t avail = (wr - rd) & MASK;
   bool packets_drained = false;
@@ -228,20 +232,20 @@ bool wm_drain_and_queue(void)
 /** @brief  Send a command to the WindMaster using polling TX
   * @param  cmd: Null-terminated command string to send
   * @retval None
-  * @note   Transmits the command string over UART5 using polling mode.
+  * @note   Transmits the command string over UART4 using polling mode.
   *         Used for short configuration commands ('*\r', 'Q\r').
   *         Includes 2ms inter-character delay to allow WindMaster to echo and process each byte.
   */
 static void send_command(const char* cmd) {
   while (*cmd) {
     /* Wait for TX empty */
-    while (!LL_USART_IsActiveFlag_TXE(UART5));
+    while (!LL_USART_IsActiveFlag_TXE(WM_UART));
 
     /* Send character */
-    LL_USART_TransmitData8(UART5, *cmd);
+    LL_USART_TransmitData8(WM_UART, *cmd);
 
     /* Wait for transmission complete */
-    while (!LL_USART_IsActiveFlag_TC(UART5));
+    while (!LL_USART_IsActiveFlag_TC(WM_UART));
 
     cmd++;
   }
@@ -250,18 +254,18 @@ static void send_command(const char* cmd) {
 /** @brief  Flush RX FIFO to clear command echoes
   * @param  None
   * @retval None
-  * @note   Reads and discards all available data from UART5 RX.
+  * @note   Reads and discards all available data from UART4 RX.
   *         Used after sending configuration commands to clear echoes.
   */
 static void flush_rx(void) {
   /* Drain RX FIFO */
-  while (LL_USART_IsActiveFlag_RXNE(UART5)) {
-    (void)LL_USART_ReceiveData8(UART5);
+  while (LL_USART_IsActiveFlag_RXNE(WM_UART)) {
+    (void)LL_USART_ReceiveData8(WM_UART);
   }
 
   /* Clear IDLE flag if set */
-  if (LL_USART_IsActiveFlag_IDLE(UART5)) {
-    LL_USART_ClearFlag_IDLE(UART5);
+  if (LL_USART_IsActiveFlag_IDLE(WM_UART)) {
+    LL_USART_ClearFlag_IDLE(WM_UART);
   }
 }
 
@@ -330,12 +334,12 @@ uint32_t wm_get_bad_data_count(void) {
   return wm_bad_data;
 }
 
-/** @brief  Check if the WindMaster is alive and responding on UART5
+/** @brief  Check if the WindMaster is alive and responding on UART4
   * @param  None
   * @retval true if the WM responded to a D3 (request config) command, false otherwise
   * @note   Sends 'D3\r' to request current configuration and polls for a response.
   *         The WM must already be in config mode (wm_init() sends '*\r').
-  *         Disables the UART5 IRQ during the exchange since the ISR drains
+  *         Disables the UART4 IRQ during the exchange since the ISR drains
   *         RXNE and would steal the response bytes.
   */
 bool wm_check_alive(void)
@@ -344,21 +348,21 @@ bool wm_check_alive(void)
     return true;
   }
 
-  /* Disable UART5 IRQ — the ISR drains RXNE, stealing response bytes */
-  NVIC_DisableIRQ(UART5_IRQn);
+  /* Disable UART4 IRQ during the polled response exchange */
+  NVIC_DisableIRQ(WM_UART_IRQn);
 
   /* Disable DMA RX request — wm_init() enables it but leaves the DMA channel
      disabled, which can block RXNE from being set. We're polling RX directly. */
-  LL_USART_DisableDMAReq_RX(UART5);
+  LL_USART_DisableDMAReq_RX(WM_UART);
 
   /* Clear any pending flags, errors, and data */
-  LL_USART_ClearFlag_TC(UART5);
-  LL_USART_ClearFlag_IDLE(UART5);
-  LL_USART_ClearFlag_ORE(UART5);
-  LL_USART_ClearFlag_FE(UART5);
-  LL_USART_ClearFlag_NE(UART5);
-  LL_USART_ClearFlag_PE(UART5);
-  (void)UART5->RDR;
+  LL_USART_ClearFlag_TC(WM_UART);
+  LL_USART_ClearFlag_IDLE(WM_UART);
+  LL_USART_ClearFlag_ORE(WM_UART);
+  LL_USART_ClearFlag_FE(WM_UART);
+  LL_USART_ClearFlag_NE(WM_UART);
+  LL_USART_ClearFlag_PE(WM_UART);
+  (void)WM_UART->RDR;
 
   /* Send 'D3\r' to request current configuration (works in config mode) */
   send_command("D3\r");
@@ -370,23 +374,23 @@ bool wm_check_alive(void)
   const uint32_t TIMEOUT_MS = 200;
 
   while ((HAL_GetTick() - timeout_start) < TIMEOUT_MS && rx_idx < (sizeof(rx_buf) - 1)) {
-    if (LL_USART_IsActiveFlag_RXNE(UART5)) {
-      rx_buf[rx_idx] = (char)LL_USART_ReceiveData8(UART5);
+    if (LL_USART_IsActiveFlag_RXNE(WM_UART)) {
+      rx_buf[rx_idx] = (char)LL_USART_ReceiveData8(WM_UART);
       rx_idx++;
       /* Reset timeout to wait for next byte */
       timeout_start = HAL_GetTick();
     }
-    if (LL_USART_IsActiveFlag_IDLE(UART5)) {
-      LL_USART_ClearFlag_IDLE(UART5);
+    if (LL_USART_IsActiveFlag_IDLE(WM_UART)) {
+      LL_USART_ClearFlag_IDLE(WM_UART);
       HAL_Delay(1);
       break;
     }
   }
   rx_buf[rx_idx] = '\0';
 
-  /* Re-enable DMA RX request and UART5 IRQ */
-  LL_USART_EnableDMAReq_RX(UART5);
-  NVIC_EnableIRQ(UART5_IRQn);
+  /* Re-enable DMA RX request and UART4 IRQ */
+  LL_USART_EnableDMAReq_RX(WM_UART);
+  NVIC_EnableIRQ(WM_UART_IRQn);
 
   /* Diagnostic: print what we received */
   shell_printf("\r\n[WM DBG] received=%u bytes\r\n", rx_idx);

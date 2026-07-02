@@ -107,7 +107,7 @@ void MX_UART4_Init(void)
   /* USER CODE BEGIN UART4_Init 1 */
 
   /* USER CODE END UART4_Init 1 */
-  UART_InitStruct.BaudRate = 115200;
+  UART_InitStruct.BaudRate = 57600;
   UART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B;
   UART_InitStruct.StopBits = LL_USART_STOPBITS_1;
   UART_InitStruct.Parity = LL_USART_PARITY_NONE;
@@ -306,7 +306,7 @@ void MX_USART2_UART_Init(void)
 
   LL_DMA_SetChannelPriorityLevel(DMA1, LL_DMA_CHANNEL_6, LL_DMA_PRIORITY_VERYHIGH);
 
-  LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_6, LL_DMA_MODE_NORMAL);
+  LL_DMA_SetMode(DMA1, LL_DMA_CHANNEL_6, LL_DMA_MODE_CIRCULAR);
 
   LL_DMA_SetPeriphIncMode(DMA1, LL_DMA_CHANNEL_6, LL_DMA_PERIPH_NOINCREMENT);
 
@@ -348,6 +348,7 @@ void MX_USART2_UART_Init(void)
   USART_InitStruct.HardwareFlowControl = LL_USART_HWCONTROL_NONE;
   USART_InitStruct.OverSampling = LL_USART_OVERSAMPLING_16;
   LL_USART_Init(USART2, &USART_InitStruct);
+  LL_USART_ConfigAsyncMode(USART2);
   LL_USART_Enable(USART2);
   /* USER CODE BEGIN USART2_Init 2 */
 
