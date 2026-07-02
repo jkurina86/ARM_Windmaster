@@ -353,7 +353,7 @@ void DMA1_Channel6_IRQHandler(void)
   /* USER CODE END DMA1_Channel6_IRQn 0 */
   /* USER CODE BEGIN DMA1_Channel6_IRQn 1 */
 
-  /* Handle DMA1 Channel 6 transfer events (USART2 WindMaster RX) */
+  /* Handle DMA1 Channel 6 transfer events (USART2 TELOS RX) */
   if (LL_DMA_IsActiveFlag_TC6(DMA1)) {
     LL_DMA_ClearFlag_TC6(DMA1);
   }
@@ -371,15 +371,14 @@ void DMA1_Channel7_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA1_Channel7_IRQn 0 */
 
-  /* Handle DMA1 Channel 7 transfer events (USART2 WindMaster TX) */
+  /* Handle DMA1 Channel 7 transfer events (USART2 TELOS TX) */
   if (LL_DMA_IsActiveFlag_TC7(DMA1)) {
     LL_DMA_ClearFlag_TC7(DMA1);
-  }
-  if (LL_DMA_IsActiveFlag_HT7(DMA1)) {
-    LL_DMA_ClearFlag_HT7(DMA1);
+    telos_tx_complete();
   }
   if (LL_DMA_IsActiveFlag_TE7(DMA1)) {
     LL_DMA_ClearFlag_TE7(DMA1);
+    telos_tx_error();
   }
 
   /* USER CODE END DMA1_Channel7_IRQn 0 */
@@ -460,7 +459,7 @@ void USART2_IRQHandler(void)
 {
   /* USER CODE BEGIN USART2_IRQn 0 */
 
-  /* WindMaster uses USART2 DMA RX; this IRQ only clears line/status flags. */
+  /* TELOS uses USART2 DMA RX/TX; this IRQ only clears line/status flags. */
 
   /* Clear IDLE flag if set */
   if (LL_USART_IsActiveFlag_IDLE(USART2)) {
@@ -524,7 +523,7 @@ void UART4_IRQHandler(void)
   /* USER CODE BEGIN UART4_IRQn 0 */
   uint32_t isr = UART4->ISR;
 
-  /* TELOS uses UART4 DMA RX/TX; this IRQ only clears line/status flags. */
+  /* WindMaster uses UART4 DMA RX; this IRQ only clears line/status flags. */
 
   /* Check for errors */
   if (isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE)) {
@@ -610,14 +609,15 @@ void DMA2_Channel3_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Channel3_IRQn 0 */
 
-  /* Handle DMA2 Channel 3 transfer complete (UART4 TELOS TX). */
+  /* UART4 WindMaster commands use polling TX; clear any stray TX DMA flags. */
   if (LL_DMA_IsActiveFlag_TC3(DMA2)) {
     LL_DMA_ClearFlag_TC3(DMA2);
-    telos_tx_complete();
   }
   if (LL_DMA_IsActiveFlag_TE3(DMA2)) {
     LL_DMA_ClearFlag_TE3(DMA2);
-    telos_tx_error();
+  }
+  if (LL_DMA_IsActiveFlag_HT3(DMA2)) {
+    LL_DMA_ClearFlag_HT3(DMA2);
   }
 
   /* USER CODE END DMA2_Channel3_IRQn 0 */
@@ -647,7 +647,7 @@ void DMA2_Channel5_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA2_Channel5_IRQn 0 */
 
-  /* Handle DMA2 Channel 5 transfer events (UART4 TELOS RX) */
+  /* Handle DMA2 Channel 5 transfer events (UART4 WindMaster RX) */
   if (LL_DMA_IsActiveFlag_TC5(DMA2)) {
     LL_DMA_ClearFlag_TC5(DMA2);
     /* Transfer complete - buffer is full */

@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    telos.h
   * @brief   TELOS communication module header
-  * @note    Handles UART4 communication with TELOS system.
+  * @note    Handles USART2 communication with TELOS system.
   *          Receives "idata\r\n" commands and responds with CSV-formatted
   *          CalcReport data via DMA.
   ******************************************************************************

@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    telos.c
   * @brief   TELOS communication module implementation
-  * @note    Handles UART4 communication with TELOS system.
+  * @note    Handles USART2 communication with TELOS system.
   *          Receives "idata\r\n" commands and responds with CSV-formatted
   *          CalcReport data via DMA.
   ******************************************************************************
@@ -24,10 +24,10 @@
 #define TX_BUFFER_SIZE      6144    /* TX buffer for CSV response (~6KB for 30 reports) */
 #define COMMAND_LEN         7       /* Length of "idata\r\n" */
 #define TELOS_TX_TIMEOUT_MS 5000    /* TX timeout in milliseconds */
-#define TELOS_UART          UART4
-#define TELOS_DMA           DMA2
-#define TELOS_DMA_RX_CH     LL_DMA_CHANNEL_5
-#define TELOS_DMA_TX_CH     LL_DMA_CHANNEL_3
+#define TELOS_UART          USART2
+#define TELOS_DMA           DMA1
+#define TELOS_DMA_RX_CH     LL_DMA_CHANNEL_6
+#define TELOS_DMA_TX_CH     LL_DMA_CHANNEL_7
 
 /* Private types -------------------------------------------------------------*/
 typedef enum {
@@ -77,11 +77,11 @@ void telos_init(void) {
     configure_dma_rx();
     configure_dma_tx();
 
-    /* Enable UART4 DMA requests */
+    /* Enable USART2 DMA requests */
     LL_USART_EnableDMAReq_RX(TELOS_UART);
     LL_USART_EnableDMAReq_TX(TELOS_UART);
 
-    /* Enable UART4 */
+    /* Enable USART2 */
     LL_USART_Enable(TELOS_UART);
 
     /* Start RX DMA */
@@ -115,9 +115,9 @@ void telos_service(void) {
 }
 
 /**
- * @brief  DMA TX complete callback - call from DMA2_Channel3_IRQHandler
+ * @brief  DMA TX complete callback - call from DMA1_Channel7_IRQHandler
  * @retval None
- * @note   Called when UART4 TX DMA transfer is complete.
+ * @note   Called when USART2 TX DMA transfer is complete.
  */
 void telos_tx_complete(void) {
     /* Disable TX DMA channel */
@@ -133,16 +133,16 @@ void telos_tx_complete(void) {
 /**
  * @brief  DMA TX error handler - recovers from DMA errors or timeout
  * @retval None
- * @note   Call from DMA2_Channel3_IRQHandler on error, or from telos_service on timeout.
+ * @note   Call from DMA1_Channel7_IRQHandler on error, or from telos_service on timeout.
  */
 void telos_tx_error(void) {
     /* Disable TX DMA channel */
     LL_DMA_DisableChannel(TELOS_DMA, TELOS_DMA_TX_CH);
 
     /* Clear DMA error flags */
-    LL_DMA_ClearFlag_TE3(TELOS_DMA);
-    LL_DMA_ClearFlag_TC3(TELOS_DMA);
-    LL_DMA_ClearFlag_HT3(TELOS_DMA);
+    LL_DMA_ClearFlag_TE7(TELOS_DMA);
+    LL_DMA_ClearFlag_TC7(TELOS_DMA);
+    LL_DMA_ClearFlag_HT7(TELOS_DMA);
 
     /* Return to idle state (reports not cleared - can retry) */
     state = TELOS_IDLE;
@@ -151,7 +151,7 @@ void telos_tx_error(void) {
 /* Private functions ---------------------------------------------------------*/
 
 /**
- * @brief  Configure DMA2 Channel 5 for UART4 RX
+ * @brief  Configure DMA1 Channel 6 for USART2 RX
  * @note   Sets up DMA for reception into a linear buffer.
  *         Must be restarted after buffer fills or after processing.
  */
@@ -185,16 +185,16 @@ static void restart_dma_rx(void) {
     LL_DMA_SetDataLength(TELOS_DMA, TELOS_DMA_RX_CH, RX_BUFFER_SIZE);
 
     /* Clear flags */
-    LL_DMA_ClearFlag_TC5(TELOS_DMA);
-    LL_DMA_ClearFlag_HT5(TELOS_DMA);
-    LL_DMA_ClearFlag_TE5(TELOS_DMA);
+    LL_DMA_ClearFlag_TC6(TELOS_DMA);
+    LL_DMA_ClearFlag_HT6(TELOS_DMA);
+    LL_DMA_ClearFlag_TE6(TELOS_DMA);
 
     /* Re-enable channel */
     LL_DMA_EnableChannel(TELOS_DMA, TELOS_DMA_RX_CH);
 }
 
 /**
- * @brief  Configure DMA2 Channel 3 for UART4 TX (normal mode)
+ * @brief  Configure DMA1 Channel 7 for USART2 TX (normal mode)
  * @retval None
  * @note   Sets up DMA for transmitting data from tx_buffer.
  */
@@ -365,9 +365,9 @@ static void start_dma_tx(uint16_t length) {
     LL_DMA_SetDataLength(TELOS_DMA, TELOS_DMA_TX_CH, length);
 
     /* Clear any pending flags */
-    LL_DMA_ClearFlag_TC3(TELOS_DMA);
-    LL_DMA_ClearFlag_HT3(TELOS_DMA);
-    LL_DMA_ClearFlag_TE3(TELOS_DMA);
+    LL_DMA_ClearFlag_TC7(TELOS_DMA);
+    LL_DMA_ClearFlag_HT7(TELOS_DMA);
+    LL_DMA_ClearFlag_TE7(TELOS_DMA);
 
     /* Enable channel to start transfer */
     LL_DMA_EnableChannel(TELOS_DMA, TELOS_DMA_TX_CH);
