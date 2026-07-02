@@ -177,7 +177,7 @@ int main(void)
   shell_printf("Checking WindMaster connectivity...");
   if (!wm_check_alive()) {
     shell_printf("FAILED!\r\n");
-    shell_printf("WARNING: WindMaster not responding. Check UART5 wiring and PB4/PB5 enable.\r\n");
+    shell_printf("WARNING: WindMaster not responding. Check USART2 wiring and PB1 enable.\r\n");
   } else {
     shell_printf("OK\r\n");
   }
@@ -321,10 +321,10 @@ void snooze (uint16_t seconds)
 
   /* Turn off the RS232 transceivers */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET); // USART3
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // USART2 (TELOS)
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET); // UART5 (WindMaster)
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET); /* UART5 second control */
-  /* UART4 RS232 Transceiver is Always-On (spare) */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // USART2 (WindMaster)
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET); // UART5 spare
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET); /* UART5 spare second control */
+  /* UART4 TELOS RS232 transceiver is always on */
 
   /* Configure on-chip RTC Wakeup Timer using HAL */
   /* Use RTC wakeup timer with RTCCLK/16 = LSE/16 = 32768/16 = 2048 Hz */
@@ -382,10 +382,10 @@ void wakeup (void)
 
   /* Turn on the RS232 transceivers */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);   /* USART3 */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);   /* USART2 (TELOS) */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);   /* UART5 (WindMaster) */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET); /* UART5 second control */
-  /* UART4 RS232 Transceiver is Always-On (spare) */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);   /* USART2 (WindMaster) */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);   /* UART5 spare */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET); /* UART5 spare second control */
+  /* UART4 TELOS RS232 transceiver is always on */
 
   /* Turn on UARTs */
   LL_USART_Enable(USART1);

@@ -2,7 +2,7 @@
   ******************************************************************************
   * @file    telos.c
   * @brief   TELOS communication module implementation
-  * @note    Handles USART2 communication with TELOS system.
+  * @note    Handles UART4 communication with TELOS system.
   *          Receives "idata\r\n" commands and responds with CSV-formatted
   *          CalcReport data via DMA.
   ******************************************************************************
@@ -24,6 +24,10 @@
 #define TX_BUFFER_SIZE      6144    /* TX buffer for CSV response (~6KB for 30 reports) */
 #define COMMAND_LEN         7       /* Length of "idata\r\n" */
 #define TELOS_TX_TIMEOUT_MS 5000    /* TX timeout in milliseconds */
+#define TELOS_UART          UART4
+#define TELOS_DMA           DMA2
+#define TELOS_DMA_RX_CH     LL_DMA_CHANNEL_5
+#define TELOS_DMA_TX_CH     LL_DMA_CHANNEL_3
 
 /* Private types -------------------------------------------------------------*/
 typedef enum {
@@ -73,15 +77,15 @@ void telos_init(void) {
     configure_dma_rx();
     configure_dma_tx();
 
-    /* Enable USART2 DMA requests */
-    LL_USART_EnableDMAReq_RX(USART2);
-    LL_USART_EnableDMAReq_TX(USART2);
+    /* Enable UART4 DMA requests */
+    LL_USART_EnableDMAReq_RX(TELOS_UART);
+    LL_USART_EnableDMAReq_TX(TELOS_UART);
 
-    /* Enable USART2 */
-    LL_USART_Enable(USART2);
+    /* Enable UART4 */
+    LL_USART_Enable(TELOS_UART);
 
     /* Start RX DMA */
-    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_6);
+    LL_DMA_EnableChannel(TELOS_DMA, TELOS_DMA_RX_CH);
 }
 
 
@@ -111,13 +115,13 @@ void telos_service(void) {
 }
 
 /**
- * @brief  DMA TX complete callback - call from DMA1_Channel7_IRQHandler
+ * @brief  DMA TX complete callback - call from DMA2_Channel3_IRQHandler
  * @retval None
- * @note   Called when USART2 TX DMA transfer is complete.
+ * @note   Called when UART4 TX DMA transfer is complete.
  */
 void telos_tx_complete(void) {
     /* Disable TX DMA channel */
-    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_7);
+    LL_DMA_DisableChannel(TELOS_DMA, TELOS_DMA_TX_CH);
 
     /* Clear the report buffer after successful transmission */
     calc_clear_reports();
@@ -129,16 +133,16 @@ void telos_tx_complete(void) {
 /**
  * @brief  DMA TX error handler - recovers from DMA errors or timeout
  * @retval None
- * @note   Call from DMA1_Channel7_IRQHandler on error, or from telos_service on timeout.
+ * @note   Call from DMA2_Channel3_IRQHandler on error, or from telos_service on timeout.
  */
 void telos_tx_error(void) {
     /* Disable TX DMA channel */
-    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_7);
+    LL_DMA_DisableChannel(TELOS_DMA, TELOS_DMA_TX_CH);
 
     /* Clear DMA error flags */
-    LL_DMA_ClearFlag_TE7(DMA1);
-    LL_DMA_ClearFlag_TC7(DMA1);
-    LL_DMA_ClearFlag_HT7(DMA1);
+    LL_DMA_ClearFlag_TE3(TELOS_DMA);
+    LL_DMA_ClearFlag_TC3(TELOS_DMA);
+    LL_DMA_ClearFlag_HT3(TELOS_DMA);
 
     /* Return to idle state (reports not cleared - can retry) */
     state = TELOS_IDLE;
@@ -147,22 +151,22 @@ void telos_tx_error(void) {
 /* Private functions ---------------------------------------------------------*/
 
 /**
- * @brief  Configure DMA1 Channel 6 for USART2 RX
+ * @brief  Configure DMA2 Channel 5 for UART4 RX
  * @note   Sets up DMA for reception into a linear buffer.
  *         Must be restarted after buffer fills or after processing.
  */
 static void configure_dma_rx(void) {
     /* Disable channel before configuration */
-    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_6);
+    LL_DMA_DisableChannel(TELOS_DMA, TELOS_DMA_RX_CH);
 
     /* Configure addresses */
-    LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_6,
-                           LL_USART_DMA_GetRegAddr(USART2, LL_USART_DMA_REG_DATA_RECEIVE),
+    LL_DMA_ConfigAddresses(TELOS_DMA, TELOS_DMA_RX_CH,
+                           LL_USART_DMA_GetRegAddr(TELOS_UART, LL_USART_DMA_REG_DATA_RECEIVE),
                            (uint32_t)rx_buffer,
                            LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 
     /* Set data length */
-    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_6, RX_BUFFER_SIZE);
+    LL_DMA_SetDataLength(TELOS_DMA, TELOS_DMA_RX_CH, RX_BUFFER_SIZE);
 }
 
 /**
@@ -171,41 +175,41 @@ static void configure_dma_rx(void) {
  */
 static void restart_dma_rx(void) {
     /* Disable channel */
-    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_6);
+    LL_DMA_DisableChannel(TELOS_DMA, TELOS_DMA_RX_CH);
 
     /* Clear buffer */
     memset(rx_buffer, 0, RX_BUFFER_SIZE);
     rx_read_pos = 0;
 
     /* Reset data length */
-    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_6, RX_BUFFER_SIZE);
+    LL_DMA_SetDataLength(TELOS_DMA, TELOS_DMA_RX_CH, RX_BUFFER_SIZE);
 
     /* Clear flags */
-    LL_DMA_ClearFlag_TC6(DMA1);
-    LL_DMA_ClearFlag_HT6(DMA1);
-    LL_DMA_ClearFlag_TE6(DMA1);
+    LL_DMA_ClearFlag_TC5(TELOS_DMA);
+    LL_DMA_ClearFlag_HT5(TELOS_DMA);
+    LL_DMA_ClearFlag_TE5(TELOS_DMA);
 
     /* Re-enable channel */
-    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_6);
+    LL_DMA_EnableChannel(TELOS_DMA, TELOS_DMA_RX_CH);
 }
 
 /**
- * @brief  Configure DMA1 Channel 7 for USART2 TX (normal mode)
+ * @brief  Configure DMA2 Channel 3 for UART4 TX (normal mode)
  * @retval None
  * @note   Sets up DMA for transmitting data from tx_buffer.
  */
 static void configure_dma_tx(void) {
     /* Disable channel before configuration */
-    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_7);
+    LL_DMA_DisableChannel(TELOS_DMA, TELOS_DMA_TX_CH);
 
     /* Configure addresses */
-    LL_DMA_ConfigAddresses(DMA1, LL_DMA_CHANNEL_7,
+    LL_DMA_ConfigAddresses(TELOS_DMA, TELOS_DMA_TX_CH,
                            (uint32_t)tx_buffer,
-                           LL_USART_DMA_GetRegAddr(USART2, LL_USART_DMA_REG_DATA_TRANSMIT),
+                           LL_USART_DMA_GetRegAddr(TELOS_UART, LL_USART_DMA_REG_DATA_TRANSMIT),
                            LL_DMA_DIRECTION_MEMORY_TO_PERIPH);
 
     /* Enable transfer complete interrupt */
-    LL_DMA_EnableIT_TC(DMA1, LL_DMA_CHANNEL_7);
+    LL_DMA_EnableIT_TC(TELOS_DMA, TELOS_DMA_TX_CH);
 }
 
 /**
@@ -216,7 +220,7 @@ static void configure_dma_tx(void) {
  */
 static bool check_for_command(void) {
     /* Get current write position from DMA counter */
-    uint16_t dma_remaining = LL_DMA_GetDataLength(DMA1, LL_DMA_CHANNEL_6);
+    uint16_t dma_remaining = LL_DMA_GetDataLength(TELOS_DMA, TELOS_DMA_RX_CH);
     uint16_t wr = RX_BUFFER_SIZE - dma_remaining;
     uint16_t rd = rx_read_pos;
 
@@ -355,16 +359,16 @@ static void start_dma_tx(uint16_t length) {
     state = TELOS_SENDING;
 
     /* Disable channel before reconfiguration */
-    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_7);
+    LL_DMA_DisableChannel(TELOS_DMA, TELOS_DMA_TX_CH);
 
     /* Set data length */
-    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_7, length);
+    LL_DMA_SetDataLength(TELOS_DMA, TELOS_DMA_TX_CH, length);
 
     /* Clear any pending flags */
-    LL_DMA_ClearFlag_TC7(DMA1);
-    LL_DMA_ClearFlag_HT7(DMA1);
-    LL_DMA_ClearFlag_TE7(DMA1);
+    LL_DMA_ClearFlag_TC3(TELOS_DMA);
+    LL_DMA_ClearFlag_HT3(TELOS_DMA);
+    LL_DMA_ClearFlag_TE3(TELOS_DMA);
 
     /* Enable channel to start transfer */
-    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_7);
+    LL_DMA_EnableChannel(TELOS_DMA, TELOS_DMA_TX_CH);
 }

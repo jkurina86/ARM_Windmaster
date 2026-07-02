@@ -3,7 +3,7 @@
   * @file    windmaster.c
   * @brief   WindMaster functions
   * @note    Implements WindMaster Mode 10 - Binary UVW Long protocol
-  *          UART4 @ 57600 baud, 23-byte packets at 20Hz
+  *          USART2 @ 57600 baud, 23-byte packets at 20Hz
   ******************************************************************************
 */
 
@@ -25,10 +25,10 @@
 #define HEADER_VALUE        0xB4        /* 0xB4 for M10, 0xB2 for M8 */
 #define DATA_SIZE           18          /* 18 Bytes for M10, 8 Bytes for M8 */
 #define CHECKSUM_SIZE       1
-#define WM_UART             UART4
-#define WM_UART_IRQn        UART4_IRQn
-#define WM_DMA              DMA2
-#define WM_DMA_RX_CHANNEL   LL_DMA_CHANNEL_5
+#define WM_UART             USART2
+#define WM_UART_IRQn        USART2_IRQn
+#define WM_DMA              DMA1
+#define WM_DMA_RX_CHANNEL   LL_DMA_CHANNEL_6
 
 /* Private variables ---------------------------------------------------------*/
 static bool wm_running = false;
@@ -49,11 +49,11 @@ static bool wm_data_valid(const WM_Packet_t* packet);
   * @param  None
   * @retval None
   * @note   Sends '*\r' command to enter configuration mode, flushes echo,
-  *         then configures DMA2 Ch5 for RX (but doesn't enable it).
+  *         then configures DMA1 Ch6 for RX (but doesn't enable it).
   *         Leaves the WindMaster in config mode (not sending binary data).
   *         Call wm_start() to begin measurement mode and enable DMA.
-  *         UART4 RX uses DMA2 Channel 5.
-  *         UART4 @ 57600 baud, 8-N-1.
+  *         USART2 RX uses DMA1 Channel 6.
+  *         USART2 @ 57600 baud, 8-N-1.
   */
 void wm_init(void) {
   /* Clear any pending flags and data */
@@ -72,10 +72,10 @@ void wm_init(void) {
   /* Ensure DMA channel is disabled before touching counters/addresses */
   LL_DMA_DisableChannel(WM_DMA, WM_DMA_RX_CHANNEL);
 
-  /* Enable UART4 DMA request for RX */
+  /* Enable USART2 DMA request for RX */
   LL_USART_EnableDMAReq_RX(WM_UART);
 
-  /* Configure DMA RX addresses (DMA2 Channel 5) */
+  /* Configure DMA RX addresses (DMA1 Channel 6) */
   LL_DMA_ConfigAddresses(WM_DMA, WM_DMA_RX_CHANNEL,
                         LL_USART_DMA_GetRegAddr(WM_UART, LL_USART_DMA_REG_DATA_RECEIVE),
                         (uint32_t)dma_buffer_wm,
@@ -232,7 +232,7 @@ bool wm_drain_and_queue(void)
 /** @brief  Send a command to the WindMaster using polling TX
   * @param  cmd: Null-terminated command string to send
   * @retval None
-  * @note   Transmits the command string over UART4 using polling mode.
+  * @note   Transmits the command string over USART2 using polling mode.
   *         Used for short configuration commands ('*\r', 'Q\r').
   *         Includes 2ms inter-character delay to allow WindMaster to echo and process each byte.
   */
@@ -254,7 +254,7 @@ static void send_command(const char* cmd) {
 /** @brief  Flush RX FIFO to clear command echoes
   * @param  None
   * @retval None
-  * @note   Reads and discards all available data from UART4 RX.
+  * @note   Reads and discards all available data from USART2 RX.
   *         Used after sending configuration commands to clear echoes.
   */
 static void flush_rx(void) {
@@ -334,13 +334,13 @@ uint32_t wm_get_bad_data_count(void) {
   return wm_bad_data;
 }
 
-/** @brief  Check if the WindMaster is alive and responding on UART4
+/** @brief  Check if the WindMaster is alive and responding on USART2
   * @param  None
   * @retval true if the WM responded to a D3 (request config) command, false otherwise
   * @note   Sends 'D3\r' to request current configuration and polls for a response.
   *         The WM must already be in config mode (wm_init() sends '*\r').
-  *         Disables the UART4 IRQ during the exchange since the ISR drains
-  *         RXNE and would steal the response bytes.
+  *         Disables the USART2 IRQ during the exchange so the response is
+  *         handled entirely by this polling path.
   */
 bool wm_check_alive(void)
 {
@@ -348,7 +348,7 @@ bool wm_check_alive(void)
     return true;
   }
 
-  /* Disable UART4 IRQ during the polled response exchange */
+  /* Disable USART2 IRQ during the polled response exchange */
   NVIC_DisableIRQ(WM_UART_IRQn);
 
   /* Disable DMA RX request — wm_init() enables it but leaves the DMA channel
@@ -388,7 +388,7 @@ bool wm_check_alive(void)
   }
   rx_buf[rx_idx] = '\0';
 
-  /* Re-enable DMA RX request and UART4 IRQ */
+  /* Re-enable DMA RX request and USART2 IRQ */
   LL_USART_EnableDMAReq_RX(WM_UART);
   NVIC_EnableIRQ(WM_UART_IRQn);
 
