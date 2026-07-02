@@ -58,8 +58,7 @@ static bool wm_data_valid(const WM_Packet_t* packet);
 void wm_init(void) {
   /* Clear any pending flags and data */
   LL_USART_ClearFlag_TC(WM_UART);
-  LL_USART_ClearFlag_IDLE(WM_UART);
-  (void)WM_UART->RDR;  // Dummy read to clear RX
+  flush_rx();
 
   /* Send '*\r' to enter configuration mode (stops any output) */
   send_command("*\r");
@@ -72,9 +71,6 @@ void wm_init(void) {
   /* Ensure DMA channel is disabled before touching counters/addresses */
   LL_DMA_DisableChannel(WM_DMA, WM_DMA_RX_CHANNEL);
 
-  /* Enable UART4 DMA request for RX */
-  LL_USART_EnableDMAReq_RX(WM_UART);
-
   /* Configure DMA RX addresses (DMA2 Channel 5) */
   LL_DMA_ConfigAddresses(WM_DMA, WM_DMA_RX_CHANNEL,
                         LL_USART_DMA_GetRegAddr(WM_UART, LL_USART_DMA_REG_DATA_RECEIVE),
@@ -82,14 +78,17 @@ void wm_init(void) {
                         LL_DMA_DIRECTION_PERIPH_TO_MEMORY);
 
   LL_DMA_SetDataLength(WM_DMA, WM_DMA_RX_CHANNEL, DMA_BUFFER_SIZE);
+
+  /* Leave RX DMA requests disabled until wm_start() enables the channel. */
+  LL_USART_DisableDMAReq_RX(WM_UART);
 }
 
 /** @brief  Start the WindMaster
   * @param  None
   * @retval None
-  * @note   Sends 'Q\r' to start measurement mode (binary output).
-  *         Flushes echo, advances DMA buffer position to skip initial <CR><LF>,
-  *         enables DMA channel for data reception, and sets running flag.
+  * @note   Enables RX DMA before sending 'Q\r' so command echo and the first
+  *         binary bytes are captured by the ring buffer instead of overrunning
+  *         the UART receive register.
   */
 void wm_start(void) {
   /* Return if already running */
@@ -97,20 +96,25 @@ void wm_start(void) {
     return;
   }
 
-  /* Send 'Q\r' to start measurement mode (binary output) and flush the echo */
-  send_command("Q\r");
-  HAL_Delay(1);
+  /* Start with a clean UART and DMA state. */
+  LL_USART_DisableDMAReq_RX(WM_UART);
+  LL_DMA_DisableChannel(WM_DMA, WM_DMA_RX_CHANNEL);
   flush_rx();
-
-  /* Advance the DMA buffer position to skip the <CR><LF> it sends before the first measurement */
-  dma_old_pos_wm = 2;
+  memset(dma_buffer_wm, 0, DMA_BUFFER_SIZE);
+  dma_old_pos_wm = 0;
 
   /* Reset DMA transfer counter (must be done while channel is disabled) */
-  LL_DMA_DisableChannel(WM_DMA, WM_DMA_RX_CHANNEL);
   LL_DMA_SetDataLength(WM_DMA, WM_DMA_RX_CHANNEL, DMA_BUFFER_SIZE);
+  LL_DMA_ClearFlag_TC5(WM_DMA);
+  LL_DMA_ClearFlag_HT5(WM_DMA);
+  LL_DMA_ClearFlag_TE5(WM_DMA);
 
-  /* Enable DMA for binary data reception */
+  /* Enable DMA before starting measurement mode so echoed 'Q' bytes are safe. */
   LL_DMA_EnableChannel(WM_DMA, WM_DMA_RX_CHANNEL);
+  LL_USART_EnableDMAReq_RX(WM_UART);
+
+  /* Send 'Q\r' to start measurement mode. Echo/CRLF will be skipped by parser. */
+  send_command("Q\r");
 
   /* Initialize latest data */
   memset(&latest_packet, 0, sizeof(WM_Packet_t));
@@ -128,7 +132,9 @@ void wm_start(void) {
 void wm_stop(void) {
   if (wm_running) {
     /* Disable DMA to prevent binary data corruption during command */
+    LL_USART_DisableDMAReq_RX(WM_UART);
     LL_DMA_DisableChannel(WM_DMA, WM_DMA_RX_CHANNEL);
+    flush_rx();
 
     /* Send '*\r' to enter configuration mode (stops output) */
     send_command("*\r");
@@ -267,6 +273,20 @@ static void flush_rx(void) {
   if (LL_USART_IsActiveFlag_IDLE(WM_UART)) {
     LL_USART_ClearFlag_IDLE(WM_UART);
   }
+
+  /* Clear line errors that can otherwise block subsequent DMA reception. */
+  if (LL_USART_IsActiveFlag_ORE(WM_UART)) {
+    LL_USART_ClearFlag_ORE(WM_UART);
+  }
+  if (LL_USART_IsActiveFlag_FE(WM_UART)) {
+    LL_USART_ClearFlag_FE(WM_UART);
+  }
+  if (LL_USART_IsActiveFlag_NE(WM_UART)) {
+    LL_USART_ClearFlag_NE(WM_UART);
+  }
+  if (LL_USART_IsActiveFlag_PE(WM_UART)) {
+    LL_USART_ClearFlag_PE(WM_UART);
+  }
 }
 
 /** @brief Validate a received WM packet
@@ -351,8 +371,7 @@ bool wm_check_alive(void)
   /* Disable UART4 IRQ during the polled response exchange */
   NVIC_DisableIRQ(WM_UART_IRQn);
 
-  /* Disable DMA RX request — wm_init() enables it but leaves the DMA channel
-     disabled, which can block RXNE from being set. We're polling RX directly. */
+  /* Make sure the polled response exchange owns UART RX. */
   LL_USART_DisableDMAReq_RX(WM_UART);
 
   /* Clear any pending flags, errors, and data */
@@ -388,8 +407,7 @@ bool wm_check_alive(void)
   }
   rx_buf[rx_idx] = '\0';
 
-  /* Re-enable DMA RX request and UART4 IRQ */
-  LL_USART_EnableDMAReq_RX(WM_UART);
+  /* Leave RX DMA disabled until wm_start() enables the DMA channel. */
   NVIC_EnableIRQ(WM_UART_IRQn);
 
   /* Diagnostic: print what we received */
@@ -404,9 +422,13 @@ bool wm_check_alive(void)
     shell_printf("[WM DBG] str: %.80s\r\n", rx_buf);
   }
 
-  /* A valid D3 response starts with 'M' (e.g. "M2,U1,O1,L1,P1,B4,...") */
-  if (rx_idx > 0 && rx_buf[0] == 'M') {
-    return true;
+  /* Echo is enabled on this system, so skip echoed "D3" and find the config line. */
+  for (uint16_t i = 0; i + 1 < rx_idx; i++) {
+    bool line_start = (i == 0) || rx_buf[i - 1] == '\r' || rx_buf[i - 1] == '\n';
+    bool mode_field = rx_buf[i] == 'M' && rx_buf[i + 1] >= '0' && rx_buf[i + 1] <= '9';
+    if (line_start && mode_field) {
+      return true;
+    }
   }
 
   return false;
