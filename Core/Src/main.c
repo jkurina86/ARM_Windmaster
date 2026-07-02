@@ -174,7 +174,7 @@ int main(void)
   shell_printf("Checking WindMaster connectivity...");
   if (!wm_check_alive()) {
     shell_printf("FAILED!\r\n");
-    shell_printf("WARNING: WindMaster not responding. Check UART4 wiring.\r\n");
+    shell_printf("WARNING: WindMaster not responding. Check UART4 wiring and PB11 enable.\r\n");
   } else {
     shell_printf("OK\r\n");
   }
@@ -321,7 +321,7 @@ void snooze (uint16_t seconds)
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET); // USART2 (TELOS)
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET); // UART5 spare
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET); /* UART5 spare second control */
-  /* UART4 WindMaster RS232 transceiver is always on */
+  HAL_GPIO_WritePin(UART4_RS232_EN_GPIO_Port, UART4_RS232_EN_Pin, GPIO_PIN_RESET); /* UART4 WindMaster */
 
   /* Configure on-chip RTC Wakeup Timer using HAL */
   /* Use RTC wakeup timer with RTCCLK/16 = LSE/16 = 32768/16 = 2048 Hz */
@@ -382,7 +382,7 @@ void wakeup (void)
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);   /* USART2 (TELOS) */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);   /* UART5 spare */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET); /* UART5 spare second control */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_11, GPIO_PIN_SET);  /* UART4 WindMaster */
+  HAL_GPIO_WritePin(UART4_RS232_EN_GPIO_Port, UART4_RS232_EN_Pin, GPIO_PIN_SET);  /* UART4 WindMaster */
 
   /* Turn on UARTs */
   LL_USART_Enable(USART1);

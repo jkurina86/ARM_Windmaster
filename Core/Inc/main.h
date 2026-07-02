@@ -104,6 +104,8 @@ void wakeup(void);
 
 /* SD Card SPI Definitions */
 #define SD_SPI_HANDLE hspi1
+#define UART4_RS232_EN_Pin GPIO_PIN_11
+#define UART4_RS232_EN_GPIO_Port GPIOB
 
 /* USER CODE END Private defines */
 
