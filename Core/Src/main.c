@@ -141,10 +141,7 @@ int main(void)
   LL_TIM_EnableIT_UPDATE(TIM4);
   LL_TIM_EnableCounter(TIM4);
   */
-
-  shell_printf("\r\n===============================================\n");
-  shell_printf("       SYSTEM INIT\n");
-  shell_printf("===============================================\r\n");
+  shell_printf("SYSTEM INIT\r\n");
 
   systime_startup();
   filesystem_init();
@@ -153,8 +150,8 @@ int main(void)
   transceiver_init();
 
   /* Allow the VectorNav to boot up after its power/transceiver enable is asserted */
-  shell_printf("Waiting 3s for VectorNav to boot...\r\n");
-  HAL_Delay(3000);
+  shell_printf("Waiting 5s for Sensors to boot...\r\n");
+  HAL_Delay(5000);
 
   init_uart_interrupts();
   wm_init();
